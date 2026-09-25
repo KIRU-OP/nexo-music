@@ -26,6 +26,11 @@ from nexo.utils.formatters import time_to_seconds
 from nexo.utils.url_guard import is_safe_media_url
 from nexo.security import build_subprocess_env
 from nexo.utils.stream.source_status import set_youtube_source_status
+from nexo.utils.telegram_cache import (
+    channel_cache_enabled,
+    get_channel_cached_file,
+    schedule_cache_upload,
+)
 from config import DURATION_LIMIT, YT_API_KEY, YTPROXY_URL, autoclean
 
 logger = LOGGER(__name__)
@@ -869,7 +874,7 @@ class YouTubeAPI:
             media_type = "video" if video else "audio"
             return await validate_playable_stream_url(url, media_type)
 
-        def schedule_background_cache(url, filepath, headers=None):
+        def schedule_background_cache(url, filepath, headers=None, vid_id=None, media_type=None):
             if not url or not filepath or cached_media_ready(filepath):
                 return
             existing = self._background_cache_tasks.get(filepath)
@@ -884,8 +889,10 @@ class YouTubeAPI:
 
             async def cache_job():
                 try:
-                    await download_from_source(url, filepath, headers)
+                    result = await download_from_source(url, filepath, headers)
                     enforce_download_cache_budget()
+                    if result and vid_id and media_type:
+                        schedule_cache_upload(vid_id, media_type, result, log_title)
                 except Exception as exc:
                     logger.warning(f"Background cache failed for {os.path.basename(filepath)}: {exc}")
                 finally:
@@ -990,6 +997,7 @@ class YouTubeAPI:
             state = "OK" if ok else "FAILED"
             pretty_sources = {
                 "LOCAL CACHE": "local cache",
+                "TELEGRAM CHANNEL CACHE": "telegram channel cache",
                 "WORKER PRIMARY": "worker primary",
                 "WORKER FALLBACK": "worker fallback",
                 "XBIT FALLBACK": "xBit fallback",
@@ -1042,7 +1050,7 @@ class YouTubeAPI:
                 (media or {}).get("cache_key") or "-",
                 cache_url == (media or {}).get("play_url"),
             )
-            schedule_background_cache(cache_url, filepath)
+            schedule_background_cache(cache_url, filepath, vid_id=vid_id, media_type=media_type)
 
         def fetch_worker_fallback_links_sync(vid_id, media_format):
             if not WORKER_FALLBACK_API_URL or not WORKER_FALLBACK_API_KEY:
@@ -1137,6 +1145,12 @@ class YouTubeAPI:
                     os.remove(filepath)
                 except Exception:
                     pass
+
+            channel_hit = await get_channel_cached_file(vid_id, "audio", filepath)
+            if channel_hit:
+                mark_source(vid_id, "audio", "TELEGRAM CHANNEL CACHE")
+                return channel_hit, True
+
             if not stream:
                 cached = await wait_for_background_cache(filepath)
                 if cached:
@@ -1158,6 +1172,7 @@ class YouTubeAPI:
                 result = await download_from_source(worker_audio_cache_url, filepath)
                 if result:
                     mark_source(vid_id, "audio", "WORKER PRIMARY")
+                    schedule_cache_upload(vid_id, "audio", result, log_title)
                     return result, True
                 logger.warning("Worker audio URL download failed, trying xBit fallback.")
 
@@ -1199,11 +1214,14 @@ class YouTubeAPI:
             if xbit_audio_url:
                 if stream and await validate_stream_source(xbit_audio_url):
                     mark_source(vid_id, "audio", "XBIT FALLBACK")
-                    schedule_background_cache(xbit_audio_url, filepath, headers)
+                    schedule_background_cache(
+                        xbit_audio_url, filepath, headers, vid_id=vid_id, media_type="audio"
+                    )
                     return xbit_audio_url, False
                 result = await download_from_source(xbit_audio_url, filepath, headers)
                 if result:
                     mark_source(vid_id, "audio", "XBIT FALLBACK")
+                    schedule_cache_upload(vid_id, "audio", result, log_title)
                     return result, True
 
             mark_source(vid_id, "audio", "WORKER PRIMARY + XBIT FALLBACK", ok=False)
@@ -1225,6 +1243,12 @@ class YouTubeAPI:
                     os.remove(filepath)
                 except Exception:
                     pass
+
+            channel_hit = await get_channel_cached_file(vid_id, "video", filepath)
+            if channel_hit:
+                mark_source(vid_id, "video", "TELEGRAM CHANNEL CACHE")
+                return channel_hit, True
+
             if not stream:
                 cached = await wait_for_background_cache(filepath)
                 if cached:
@@ -1246,6 +1270,7 @@ class YouTubeAPI:
                 result = await download_from_source(worker_video_cache_url, filepath)
                 if result:
                     mark_source(vid_id, "video", "WORKER PRIMARY")
+                    schedule_cache_upload(vid_id, "video", result, log_title)
                     return result, True
                 logger.warning("Worker video URL download failed, trying xBit fallback.")
 
@@ -1287,11 +1312,14 @@ class YouTubeAPI:
             if xbit_video_url:
                 if stream and await validate_stream_source(xbit_video_url):
                     mark_source(vid_id, "video", "XBIT FALLBACK")
-                    schedule_background_cache(xbit_video_url, filepath, headers)
+                    schedule_background_cache(
+                        xbit_video_url, filepath, headers, vid_id=vid_id, media_type="video"
+                    )
                     return xbit_video_url, False
                 result = await download_from_source(xbit_video_url, filepath, headers)
                 if result:
                     mark_source(vid_id, "video", "XBIT FALLBACK")
+                    schedule_cache_upload(vid_id, "video", result, log_title)
                     return result, True
 
             mark_source(vid_id, "video", "WORKER PRIMARY + XBIT FALLBACK", ok=False)
