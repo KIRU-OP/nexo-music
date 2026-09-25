@@ -12,10 +12,10 @@ API_HASH = getenv("API_HASH", "")
 BOT_TOKEN = getenv("BOT_TOKEN")
 
 OWNER_ID = int(getenv("OWNER_ID", 0))
-OWNER_USERNAME = getenv("OWNER_USERNAME", "EliteSid")
-BOT_USERNAME = getenv("BOT_USERNAME", "Vivan_music_bot")
-BOT_NAME = getenv("BOT_NAME", "˹𝐕ɪᴠᴀᴀɴ ✘ 𝙼ᴜsɪᴄ˼ ♪")
-ASSUSERNAME = getenv("ASSUSERNAME", "Vivaanassistant")
+OWNER_USERNAME = getenv("OWNER_USERNAME", "")
+BOT_USERNAME = getenv("BOT_USERNAME", "")
+BOT_NAME = getenv("BOT_NAME", "˹♪")
+ASSUSERNAME = getenv("ASSUSERNAME", "")
 
 # ── Database & logging ─────────────────────────────────────────────────────────
 MONGO_DB_URI = getenv("MONGO_DB_URI")
@@ -52,14 +52,14 @@ HEROKU_APP_NAME = getenv("HEROKU_APP_NAME")
 HEROKU_API_KEY = getenv("HEROKU_API_KEY")
 
 # ── Git / updates ──────────────────────────────────────────────────────────────
-UPSTREAM_REPO = getenv("UPSTREAM_REPO", "https://github.com/SkyBotsDeveloper/VivaanXmusic3.0")
+UPSTREAM_REPO = getenv("UPSTREAM_REPO", "https://github.com/KIRU-OP/nexo-music")
 UPSTREAM_BRANCH = getenv("UPSTREAM_BRANCH", "main")
 GIT_TOKEN = getenv("GIT_TOKEN")  # needed if repo is private
 
 # ── Support links ──────────────────────────────────────────────────────────────
-SUPPORT_CHANNEL = getenv("SUPPORT_CHANNEL", "https://t.me/VivaanUpdates")
-SUPPORT_CHAT = getenv("SUPPORT_CHAT", "https://t.me/VivaanSupport")
-POLICY_URL = getenv("POLICY_URL", "https://t.me/VivaanUpdates")
+SUPPORT_CHANNEL = getenv("SUPPORT_CHANNEL", "https://t.me/about_deadly_venom")
+SUPPORT_CHAT = getenv("SUPPORT_CHAT", "https://t.me/+2PkcrtzO-1A5MjY1")
+POLICY_URL = getenv("POLICY_URL", "https://t.me/+GO2K-RVFS7o3ZjNl")
 
 # ── Assistant auto-leave ───────────────────────────────────────────────────────
 AUTO_LEAVING_ASSISTANT = True
@@ -107,10 +107,10 @@ def time_to_seconds(time: str) -> int:
 DURATION_LIMIT = time_to_seconds(f"{DURATION_LIMIT_MIN}:00")
 
 # ───── Bot Introduction Messages ───── #
-AYU = ["💞", "🦋", "🔍", "🧪", "⚡️", "🔥", "🎩", "🌈", "🍷", "🥂", "🥃", "🕊️", "🪄", "💌", "🧨"]
+AYU = ["🥀 𝐏ɤσƈɛssɩŋʛ..."]
 AYUV = [
-    "ʜᴇʏ {0}, ɪ'ᴍ {1} 🎧\n\nʏᴏᴜʀ ᴀʟʟ-ɪɴ-ᴏɴᴇ ᴛᴇʟᴇɢʀᴀᴍ ᴄᴏᴍᴘᴀɴɪᴏɴ, ʙᴜɪʟᴛ ᴛᴏ ᴋᴇᴇᴘ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴇɴᴛᴇʀᴛᴀɪɴᴇᴅ ᴀɴᴅ ᴡᴇʟʟ ᴍᴀɴᴀɢᴇᴅ.\n\n✦ ᴡʜᴀᴛ ɪ ᴄᴀɴ ᴅᴏ:\n▸ ᴘʟᴀʏ ᴍᴜsɪᴄ ɪɴ ᴠᴏɪᴄᴇ ᴄʜᴀᴛs — ʏᴏᴜᴛᴜʙᴇ, sᴘᴏᴛɪғʏ & ᴍᴏʀᴇ\n▸ ɢᴇɴᴇʀᴀᴛᴇ sᴛᴜɴɴɪɴɢ ᴀɪ ɪᴍᴀɢᴇs\n▸ ᴛʀᴀɴsʟᴀᴛᴇ ᴛᴇxᴛ ᴀᴄʀᴏss ᴍᴜʟᴛɪᴘʟᴇ ʟᴀɴɢᴜᴀɢᴇs\n▸ ғᴜʟʟ ɢʀᴏᴜᴘ ᴍᴏᴅᴇʀᴀᴛɪᴏɴ — ᴍᴜᴛᴇ, ʙᴀɴ, ᴋɪᴄᴋ & ᴍᴏʀᴇ\n▸ ᴄᴜsᴛᴏᴍ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇs ғᴏʀ ɴᴇᴡ ᴍᴇᴍʙᴇʀs\n▸ ᴘʟᴜs ᴘʟᴇɴᴛʏ ᴍᴏʀᴇ ᴛᴏᴏʟs — ᴛᴀᴘ ᴄᴏᴍᴍᴀɴᴅs ʙᴇʟᴏᴡ ᴛᴏ ᴇxᴘʟᴏʀᴇ\n\n📊 sᴛᴀᴛs\nᴜᴘᴛɪᴍᴇ: {2} · sᴛᴏʀᴀɢᴇ: {3}\nᴄᴘᴜ: {4} · ʀᴀᴍ: {5}\nᴜsᴇʀs: {6} · ᴄʜᴀᴛs: {7}\n\n💫 ᴅᴇᴠᴇʟᴏᴘᴇʀ: [ᴠɪᴠᴀᴀɴ ᴅᴇᴠ](https://t.me/EliteSid)",
-    "ʜᴇʏ {0}, ɪ'ᴍ {1} 🎧\n\nʏᴏᴜʀ ᴀʟʟ-ɪɴ-ᴏɴᴇ ᴛᴇʟᴇɢʀᴀᴍ ᴄᴏᴍᴘᴀɴɪᴏɴ, ʙᴜɪʟᴛ ᴛᴏ ᴋᴇᴇᴘ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴇɴᴛᴇʀᴛᴀɪɴᴇᴅ ᴀɴᴅ ᴡᴇʟʟ ᴍᴀɴᴀɢᴇᴅ.\n\n✦ ᴡʜᴀᴛ ɪ ᴄᴀɴ ᴅᴏ:\n▸ ᴘʟᴀʏ ᴍᴜsɪᴄ ɪɴ ᴠᴏɪᴄᴇ ᴄʜᴀᴛs — ʏᴏᴜᴛᴜʙᴇ, sᴘᴏᴛɪғʏ & ᴍᴏʀᴇ\n▸ ɢᴇɴᴇʀᴀᴛᴇ sᴛᴜɴɴɪɴɢ ᴀɪ ɪᴍᴀɢᴇs\n▸ ᴛʀᴀɴsʟᴀᴛᴇ ᴛᴇxᴛ ᴀᴄʀᴏss ᴍᴜʟᴛɪᴘʟᴇ ʟᴀɴɢᴜᴀɢᴇs\n▸ ғᴜʟʟ ɢʀᴏᴜᴘ ᴍᴏᴅᴇʀᴀᴛɪᴏɴ — ᴍᴜᴛᴇ, ʙᴀɴ, ᴋɪᴄᴋ & ᴍᴏʀᴇ\n▸ ᴄᴜsᴛᴏᴍ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇs ғᴏʀ ɴᴇᴡ ᴍᴇᴍʙᴇʀs\n▸ ᴘʟᴜs ᴘʟᴇɴᴛʏ ᴍᴏʀᴇ ᴛᴏᴏʟs — ᴛᴀᴘ ᴄᴏᴍᴍᴀɴᴅs ʙᴇʟᴏᴡ ᴛᴏ ᴇxᴘʟᴏʀᴇ\n\n📊 sᴛᴀᴛs\nᴜᴘᴛɪᴍᴇ: {2} · sᴛᴏʀᴀɢᴇ: {3}\nᴄᴘᴜ: {4} · ʀᴀᴍ: {5}\nᴜsᴇʀs: {6} · ᴄʜᴀᴛs: {7}\n\n💫 ᴅᴇᴠᴇʟᴏᴘᴇʀ: [ᴠɪᴠᴀᴀɴ ᴅᴇᴠ](https://t.me/EliteSid)",
+    "ʜᴇʏ {0}, ɪ'ᴍ {1} 🎧\n\nʏᴏᴜʀ ᴀʟʟ-ɪɴ-ᴏɴᴇ ᴛᴇʟᴇɢʀᴀᴍ ᴄᴏᴍᴘᴀɴɪᴏɴ, ʙᴜɪʟᴛ ᴛᴏ ᴋᴇᴇᴘ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴇɴᴛᴇʀᴛᴀɪɴᴇᴅ ᴀɴᴅ ᴡᴇʟʟ ᴍᴀɴᴀɢᴇᴅ.\n\n✦ ᴡʜᴀᴛ ɪ ᴄᴀɴ ᴅᴏ:\n▸ ᴘʟᴀʏ ᴍᴜsɪᴄ ɪɴ ᴠᴏɪᴄᴇ ᴄʜᴀᴛs — ʏᴏᴜᴛᴜʙᴇ, sᴘᴏᴛɪғʏ & ᴍᴏʀᴇ\n▸ ɢᴇɴᴇʀᴀᴛᴇ sᴛᴜɴɴɪɴɢ ᴀɪ ɪᴍᴀɢᴇs\n▸ ᴛʀᴀɴsʟᴀᴛᴇ ᴛᴇxᴛ ᴀᴄʀᴏss ᴍᴜʟᴛɪᴘʟᴇ ʟᴀɴɢᴜᴀɢᴇs\n▸ ғᴜʟʟ ɢʀᴏᴜᴘ ᴍᴏᴅᴇʀᴀᴛɪᴏɴ — ᴍᴜᴛᴇ, ʙᴀɴ, ᴋɪᴄᴋ & ᴍᴏʀᴇ\n▸ ᴄᴜsᴛᴏᴍ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇs ғᴏʀ ɴᴇᴡ ᴍᴇᴍʙᴇʀs\n▸ ᴘʟᴜs ᴘʟᴇɴᴛʏ ᴍᴏʀᴇ ᴛᴏᴏʟs — ᴛᴀᴘ ᴄᴏᴍᴍᴀɴᴅs ʙᴇʟᴏᴡ ᴛᴏ ᴇxᴘʟᴏʀᴇ\n\n📊 sᴛᴀᴛs\nᴜᴘᴛɪᴍᴇ: {2} · sᴛᴏʀᴀɢᴇ: {3}\nᴄᴘᴜ: {4} · ʀᴀᴍ: {5}\nᴜsᴇʀs: {6} · ᴄʜᴀᴛs: {7}\n\n💫 ᴅᴇᴠᴇʟᴏᴘᴇʀ: [𝐕 𝚬 𝚴 𝚶 𝚳 ⴕ](https://t.me/ll_deadly_venom_ll)",
+    "ʜᴇʏ {0}, ɪ'ᴍ {1} 🎧\n\nʏᴏᴜʀ ᴀʟʟ-ɪɴ-ᴏɴᴇ ᴛᴇʟᴇɢʀᴀᴍ ᴄᴏᴍᴘᴀɴɪᴏɴ, ʙᴜɪʟᴛ ᴛᴏ ᴋᴇᴇᴘ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴇɴᴛᴇʀᴛᴀɪɴᴇᴅ ᴀɴᴅ ᴡᴇʟʟ ᴍᴀɴᴀɢᴇᴅ.\n\n✦ ᴡʜᴀᴛ ɪ ᴄᴀɴ ᴅᴏ:\n▸ ᴘʟᴀʏ ᴍᴜsɪᴄ ɪɴ ᴠᴏɪᴄᴇ ᴄʜᴀᴛs — ʏᴏᴜᴛᴜʙᴇ, sᴘᴏᴛɪғʏ & ᴍᴏʀᴇ\n▸ ɢᴇɴᴇʀᴀᴛᴇ sᴛᴜɴɴɪɴɢ ᴀɪ ɪᴍᴀɢᴇs\n▸ ᴛʀᴀɴsʟᴀᴛᴇ ᴛᴇxᴛ ᴀᴄʀᴏss ᴍᴜʟᴛɪᴘʟᴇ ʟᴀɴɢᴜᴀɢᴇs\n▸ ғᴜʟʟ ɢʀᴏᴜᴘ ᴍᴏᴅᴇʀᴀᴛɪᴏɴ — ᴍᴜᴛᴇ, ʙᴀɴ, ᴋɪᴄᴋ & ᴍᴏʀᴇ\n▸ ᴄᴜsᴛᴏᴍ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇs ғᴏʀ ɴᴇᴡ ᴍᴇᴍʙᴇʀs\n▸ ᴘʟᴜs ᴘʟᴇɴᴛʏ ᴍᴏʀᴇ ᴛᴏᴏʟs — ᴛᴀᴘ ᴄᴏᴍᴍᴀɴᴅs ʙᴇʟᴏᴡ ᴛᴏ ᴇxᴘʟᴏʀᴇ\n\n📊 sᴛᴀᴛs\nᴜᴘᴛɪᴍᴇ: {2} · sᴛᴏʀᴀɢᴇ: {3}\nᴄᴘᴜ: {4} · ʀᴀᴍ: {5}\nᴜsᴇʀs: {6} · ᴄʜᴀᴛs: {7}\n\n💫 ᴅᴇᴠᴇʟᴏᴘᴇʀ: [𝐕 𝚬 𝚴 𝚶 𝚳 ⴕ](https://t.me/ll_deadly_venom_ll)",
 ]
 
 # ── Runtime structures ─────────────────────────────────────────────────────────
