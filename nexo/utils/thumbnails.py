@@ -11,7 +11,7 @@ import yt_dlp
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 from unidecode import unidecode
 from urllib.request import Request, urlopen
-from youtubesearchpython.future import VideosSearch
+from youtubesearchpython.__future__ import VideosSearch
 from nexo import app
 from config import BOT_NAME, YOUTUBE_IMG_URL
 from nexo.core.dir import CACHE_DIR
