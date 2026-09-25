@@ -645,7 +645,7 @@ class YouTubeAPI:
         songvideo: Union[bool, str] = None,
         format_id: Union[bool, str] = None,
         title: Union[bool, str] = None,
-        stream: Union[bool, str] = None,
+        stream: Union[bool, str] = True,
     ) -> str:
         if videoid:
             vid_id = link
