@@ -28,6 +28,10 @@ def private_panel(_):
             success_button(text=_["S_B_4"], url=config.SUPPORT_CHAT),
         ],
         [
+            success_button(text=_["S_B_2"], url=config.SUPPORT_CHANNEL),
+            primary_button(text=_["S_B_8"], url=config.POLICY_URL),
+        ],
+        [
             primary_button(text=_["S_B_3"], callback_data="open_help"),
         ],
     ]
