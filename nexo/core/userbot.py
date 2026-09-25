@@ -120,7 +120,7 @@ class Userbot:
             try:
                 await _run_with_timeout(
                     client.send_message(
-                        config.LOGGER_ID, f"Vivaan's Assistant {index} Started"
+                        config.LOGGER_ID, f"nexo Assistant {index} Started"
                     ),
                     ASSISTANT_STEP_TIMEOUT,
                     f"Assistant {index} log message",
