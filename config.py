@@ -81,23 +81,23 @@ STRING5 = getenv("STRING_SESSION5")
 
 # ── Media assets ───────────────────────────────────────────────────────────────
 START_VIDS = [
-    "https://files.catbox.moe/1jcn1p.mp4",
-    "https://files.catbox.moe/1jcn1p.mp4",
-    "https://files.catbox.moe/1jcn1p.mp4",
+    "https://files.catbox.moe/8xacz4.jpg",
+    "https://files.catbox.moe/8xacz4.jpg",
+    "https://files.catbox.moe/8xacz4.jpg",
 ]
 STICKERS = [
     "CAACAgUAAx0Cd6nKUAACASBl_rnalOle6g7qS-ry-aZ1ZpVEnwACgg8AAizLEFfI5wfykoCR4h4E",
     "CAACAgUAAx0Cd6nKUAACATJl_rsEJOsaaPSYGhU7bo7iEwL8AAPMDgACu2PYV8Vb8aT4_HUPHgQ",
 ]
-HELP_IMG_URL = "https://files.catbox.moe/22oahi.jpg"
-PING_VID_URL = "https://files.catbox.moe/5z1qte.mp4"
-PLAYLIST_IMG_URL = "https://files.catbox.moe/u79q4y.jpg"
-STATS_VID_URL = "https://files.catbox.moe/uo4lc8.mp4"
-TELEGRAM_AUDIO_URL = "https://files.catbox.moe/eis7ei.jpg"
-TELEGRAM_VIDEO_URL = "https://files.catbox.moe/eis7ei.jpg"
-STREAM_IMG_URL = "https://files.catbox.moe/eis7ei.jpg"
-SOUNCLOUD_IMG_URL = "https://files.catbox.moe/eis7ei.jpg"
-YOUTUBE_IMG_URL = "https://files.catbox.moe/eis7ei.jpg"
+HELP_IMG_URL = "https://files.catbox.moe/km9sob.jpg"
+PING_VID_URL = "https://files.catbox.moe/km9sob.jpg"
+PLAYLIST_IMG_URL = "https://files.catbox.moe/km9sob.jpg"
+STATS_VID_URL = "https://files.catbox.moe/km9sob.jpg"
+TELEGRAM_AUDIO_URL = "https://files.catbox.moe/km9sob.jpg"
+TELEGRAM_VIDEO_URL = "https://files.catbox.moe/km9sob.jpg"
+STREAM_IMG_URL = "https://files.catbox.moe/km9sob.jpg"
+SOUNCLOUD_IMG_URL = "https://files.catbox.moe/km9sob.jpg"
+YOUTUBE_IMG_URL = "https://files.catbox.moe/km9sob.jpg"
 SPOTIFY_ARTIST_IMG_URL = SPOTIFY_ALBUM_IMG_URL = SPOTIFY_PLAYLIST_IMG_URL = YOUTUBE_IMG_URL
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
