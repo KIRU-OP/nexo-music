@@ -3,7 +3,7 @@ import re
 from typing import Any, Dict, Optional, Tuple, Union
 
 from yt_dlp import YoutubeDL
-from youtubesearchpython.future import VideosSearch
+from youtubesearchpython.__future__ import VideosSearch
 
 from nexo.utils.downloader import download_audio_concurrent
 from nexo.utils.formatters import seconds_to_min
