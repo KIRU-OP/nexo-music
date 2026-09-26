@@ -12,7 +12,7 @@ BUTTON_LABEL_OVERRIDES = {
 
 def generate_help_buttons(_, start: int, end: int, current_page: int):
     buttons = []
-    per_row = 3
+    per_row = 4
     for idx, section in enumerate(range(start, end + 1)):
         if idx % per_row == 0:
             buttons.append([])
