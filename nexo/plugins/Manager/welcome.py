@@ -4,7 +4,7 @@ from pyrogram import enums, filters
 from pyrogram.types import Message, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import TopicClosed
 from nexo import app
-from nexo.mongo.welcomedb import is_on, set_state, bump, cool, auto_on
+from nexo.mongo.welcomedb import is_on, set_state, bump, cool
 
 BG_PATH = "nexo/assets/vivaan/welcome.png"
 FALLBACK_PIC = "nexo/assets/upic.png"
@@ -91,14 +91,12 @@ async def welcome(client, update: ChatMemberUpdated):
     valid_old_statuses = (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED)
     if old and (old.status not in valid_old_statuses):
         return
+
+    # Welcome sirf tabhi chalega jab admin ne explicitly /welcome on kiya ho.
+    # Koi auto-enable nahi hoga (na naye group mein, na cooldown khatam hone par).
     if not await is_on(cid):
-        if await auto_on(cid):
-            try:
-                await client.send_message(cid, "**ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇs ʀᴇ-ᴇɴᴀʙʟᴇᴅ.**")
-            except TopicClosed:
-                return
-        else:
-            return
+        return
+
     burst = await bump(cid, TIME_WINDOW)
     if burst >= JOIN_THRESHOLD:
         minutes = _cooldown_minutes(burst, JOIN_THRESHOLD, COOL_MINUTES)
