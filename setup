@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# ======== nexo-music Setup (stable) ========
+# ======== VivaanXMusic Setup (stable) ========
 # - Debian/Ubuntu apt only
 # - Required/optional prompts, clear after config
 # - Environment Summary table neatly aligned
@@ -60,15 +60,6 @@ bad(){  printf "  %s✖%s %s\n" "$(c red)"   "$(c reset)" "$1"; }
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 trap 'stty sane 2>/dev/null || true' EXIT
-on_err(){
-  local ec=$?
-  stty sane 2>/dev/null || true
-  printf "\n  %s✖ FAILED%s (exit %s) at line %s\n  %sCommand:%s %s\n" \
-    "$(c red)" "$(c reset)" "$ec" "$LINENO" "$(c dim)" "$(c reset)" "$BASH_COMMAND" >&2
-  printf "  Check logs in: %s\n" "$LOG_DIR" >&2
-  exit "$ec"
-}
-trap on_err ERR
 
 LOG_DIR="$SCRIPT_DIR/logs"; mkdir -p "$LOG_DIR"
 APTLOG="$LOG_DIR/apt.log"; NODELOG="$LOG_DIR/node.log"; PYLOG="$LOG_DIR/pip.log"
@@ -81,49 +72,13 @@ install_prereqs(){ info "Installing python3, pip, venv, curl, ffmpeg"; sudo apt-
 
 install_node(){ if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then info "Node.js present ($(node -v))"; return; fi; info "Installing Node.js LTS"; bash -lc 'curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -' >>"$NODELOG" 2>&1; sudo apt-get install -yq nodejs >>"$NODELOG" 2>&1; sudo npm i -g npm >>"$NODELOG" 2>&1 || true; }
 
-install_python(){
-  if [ ! -f requirements.txt ]; then warn "requirements.txt not found — skipping Python deps"; return; fi
-
-  if [ ! -x ".venv/bin/python3" ]; then
-    info "Creating virtualenv (.venv)"
-    if ! python3 -m venv .venv >>"$PYLOG" 2>&1; then
-      bad "Failed to create virtualenv — last lines of $PYLOG:"
-      tail -n 20 "$PYLOG" >&2
-      exit 1
-    fi
-  fi
-
-  # NOTE: we deliberately do NOT `source .venv/bin/activate` here.
-  # Many activate scripts reference unset shell vars (e.g. PS1), which
-  # crashes the whole install under `set -u`. Calling the venv's own
-  # python/pip binaries directly does the same job, safely.
-  local VPY=".venv/bin/python3" VPIP=".venv/bin/pip"
-
-  info "Upgrading pip/setuptools/wheel"
-  if ! "$VPY" -m pip install -U pip setuptools wheel >>"$PYLOG" 2>&1; then
-    bad "pip bootstrap failed — last lines of $PYLOG:"
-    tail -n 20 "$PYLOG" >&2
-    exit 1
-  fi
-
-  info "Installing requirements.txt"
-  if ! "$VPIP" install -Ur requirements.txt >>"$PYLOG" 2>&1; then
-    bad "requirements install failed — last lines of $PYLOG:"
-    tail -n 20 "$PYLOG" >&2
-    exit 1
-  fi
-
-  good "Python deps installed"
-}
+install_python(){ if [ ! -f requirements.txt ]; then warn "requirements.txt not found — skipping Python deps"; return; fi; python3 -m venv .venv >>"$PYLOG" 2>&1; . ./.venv/bin/activate; python -m pip install -U pip setuptools wheel >>"$PYLOG" 2>&1; pip install -Ur requirements.txt >>"$PYLOG" 2>&1; good "Python deps installed"; }
 
 # ------- Prompts -------
-TTY_IN="/dev/stdin"
-[ -t 0 ] || { [ -r /dev/tty ] && TTY_IN="/dev/tty"; }
-
 prompt_req(){
   local label="$1" var="$2" val=""
   while :; do
-    IFS= read -r -p "  $(c yellow)$label (required): $(c reset)" val <"$TTY_IN" || true
+    IFS= read -r -p "  $(c yellow)$label (required): $(c reset)" val || true
     [ -n "$val" ] && break
     printf "  %s!%s required field\n" "$(c yellow)" "$(c reset)"
   done
@@ -132,7 +87,7 @@ prompt_req(){
 
 prompt_opt(){
   local label="$1" var="$2" val=""
-  IFS= read -r -p "  $(c yellow)$label (optional): $(c reset)" val <"$TTY_IN" || true
+  IFS= read -r -p "  $(c yellow)$label (optional): $(c reset)" val || true
   printf -v "$var" '%s' "$val"
 }
 
