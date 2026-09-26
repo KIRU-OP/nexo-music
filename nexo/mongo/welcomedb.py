@@ -7,7 +7,9 @@ _col = mongodb["welcome"]
 
 async def is_on(chat_id: int) -> bool:
     doc = await _col.find_one({"_id": chat_id}, {"state": 1})
-    return (doc or {}).get("state", "on") == "on"
+    # Default "off": naya group ya bina record wala group -> welcome band rahega
+    # jab tak admin explicitly /welcome on nahi karta.
+    return (doc or {}).get("state", "off") == "on"
 
 
 async def set_state(chat_id: int, flag: str) -> None:
@@ -48,22 +50,4 @@ async def cool(chat_id: int, cool_minutes: int = 10) -> None:
             }
         },
         upsert=True,
-    )
-
-
-async def auto_on(chat_id: int) -> bool:
-    now = datetime.now(timezone.utc)
-    doc = await _col.find_one({"_id": chat_id}, {"cool_until": 1})
-    cool_until: Optional[datetime] = (doc or {}).get("cool_until")
-
-    if cool_until and cool_until.tzinfo is None:
-        cool_until = cool_until.replace(tzinfo=timezone.utc)
-
-    if cool_until and now >= cool_until:
-        await _col.update_one(
-            {"_id": chat_id},
-            {"$set": {"state": "on"}, "$unset": {"cool_until": ""}},
-            upsert=True,
-        )
-        return True
-    return False
+                  )
