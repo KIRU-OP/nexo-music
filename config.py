@@ -59,7 +59,7 @@ GIT_TOKEN = getenv("GIT_TOKEN")  # needed if repo is private
 # ── Support links ──────────────────────────────────────────────────────────────
 SUPPORT_CHANNEL = getenv("SUPPORT_CHANNEL", "https://t.me/about_deadly_venom")
 SUPPORT_CHAT = getenv("SUPPORT_CHAT", "https://t.me/+2PkcrtzO-1A5MjY1")
-POLICY_URL = getenv("POLICY_URL", "https://t.me/+GO2K-RVFS7o3ZjNl")
+POLICY_URL = getenv("POLICY_URL", "https://claude.ai/artifact/2XFLzM4uUNi1jLrwK1hvVF")
 
 # ── Assistant auto-leave ───────────────────────────────────────────────────────
 AUTO_LEAVING_ASSISTANT = True
