@@ -29,8 +29,8 @@ def first_page(_):
     buttons = generate_help_buttons(_, 1, 15, current_page=1)
     buttons.append(
         [
-            primary_button(text="๏ ᴍᴇɴᴜ ๏", callback_data="back_to_main"),
-            primary_button(text="๏ ɴᴇxᴛ ๏", callback_data="help_next_2"),
+            primary_button(text="ᴍᴇɴᴜ", callback_data="back_to_main"),
+            primary_button(text="ɴᴇxᴛ", callback_data="help_next_2"),
         ]
     )
     return InlineKeyboardMarkup(buttons)
@@ -40,8 +40,8 @@ def second_page(_):
     buttons = generate_help_buttons(_, 16, TOTAL_SECTIONS, current_page=2)
     buttons.append(
         [
-            primary_button(text="๏ ʙᴀᴄᴋ ๏", callback_data="help_prev_1"),
-            primary_button(text="๏ ᴍᴇɴᴜ ๏", callback_data="back_to_main"),
+            primary_button(text="ʙᴀᴄᴋ", callback_data="help_prev_1"),
+            primary_button(text="ᴍᴇɴᴜ", callback_data="back_to_main"),
         ]
     )
     return InlineKeyboardMarkup(buttons)
@@ -86,4 +86,4 @@ def private_help_panel(_):
                 url=f"https://t.me/{app.username}?start=help",
             )
         ]
-    ]
+                    ]
