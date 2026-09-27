@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import math
 import os
 import re
@@ -17,18 +16,13 @@ from nexo import app
 from config import BOT_NAME, YOUTUBE_IMG_URL
 from nexo.core.dir import CACHE_DIR
 
-# Dedicated logger so artwork-fetch failures are no longer swallowed silently.
-# Set logging.getLogger("thumbnails").setLevel(logging.DEBUG) if you need
-# maximum detail while debugging why a video keeps falling back to local art.
-logger = logging.getLogger("thumbnails")
-
 
 # Font paths
 TITLE_FONT_PATH = "nexo/assets/thumb/font2.ttf"
 META_FONT_PATH = "nexo/assets/thumb/font.ttf"
 FALLBACK_AVATAR_URL = "https://files.catbox.moe/0ld5qc.jpg"
 THUMB_CACHE_VERSION = "v26"
-THUMBNAIL_FETCH_TIMEOUT = aiohttp.ClientTimeout(total=22.0, connect=7.0, sock_read=10.0)
+THUMBNAIL_FETCH_TIMEOUT = aiohttp.ClientTimeout(total=16.0, connect=5.0, sock_read=8.0)
 THUMBNAIL_FETCH_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -262,34 +256,18 @@ async def fetch_image_data(session: aiohttp.ClientSession, url: str) -> bytes | 
             allow_redirects=True,
         ) as resp:
             if resp.status != 200:
-                logger.debug("Thumbnail fetch got HTTP %s for %s", resp.status, url)
                 return None
             content_type = str(resp.headers.get("content-type") or "").lower()
-            # Some CDNs/edge nodes serve valid images under a generic
-            # content-type (e.g. application/octet-stream). Only reject
-            # when the header clearly indicates non-image content (html
-            # error pages, json errors, etc.) - actual bytes are still
-            # verified by PIL later in write_verified_image().
-            if content_type and not any(
-                marker in content_type for marker in ("image", "octet-stream", "binary")
-            ):
-                logger.debug(
-                    "Thumbnail fetch rejected due to content-type=%s for %s",
-                    content_type,
-                    url,
-                )
+            if content_type and "image" not in content_type:
                 return None
             content_length = int(resp.headers.get("content-length") or 0)
             if content_length and content_length > MAX_THUMBNAIL_BYTES:
-                logger.debug("Thumbnail too large (%s bytes) for %s", content_length, url)
                 return None
             data = await resp.read()
             if len(data) < 512 or len(data) > MAX_THUMBNAIL_BYTES:
-                logger.debug("Thumbnail size out of bounds (%s bytes) for %s", len(data), url)
                 return None
             return data
-    except Exception as exc:
-        logger.debug("Thumbnail fetch raised %r for %s", exc, url)
+    except Exception:
         return None
 
 
@@ -316,8 +294,7 @@ async def write_verified_image(data: bytes, output_path: str) -> bool:
         except Exception:
             pass
         return True
-    except Exception as exc:
-        logger.debug("write_verified_image failed for %s: %r", output_path, exc)
+    except Exception:
         try:
             os.remove(output_path)
         except Exception:
@@ -573,30 +550,15 @@ def extract_ytdlp_thumbnail_urls(videoid: str) -> list[str]:
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
-        "socket_timeout": 10,
-        "retries": 2,
+        "socket_timeout": 8,
+        "retries": 1,
         "noplaylist": True,
-        "geo_bypass": True,
-        "nocheckcertificate": True,
-        # YouTube's bot-detection frequently blocks the default "web"
-        # client on server IPs. Falling back through android/ios clients
-        # (no login/PO-token required) fixes most silent extraction
-        # failures without needing cookies.
-        "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}},
-        "http_headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (Linux; Android 12; Pixel 6) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/123.0.0.0 Mobile Safari/537.36"
-            ),
-        },
         "logger": QuietYtDlpLogger(),
     }
     try:
         with yt_dlp.YoutubeDL(options) as ydl:
             info = ydl.extract_info(url, download=False)
-    except Exception as exc:
-        logger.warning("yt-dlp thumbnail extraction failed for %s: %r", clean_id, exc)
+    except Exception:
         return []
 
     thumbnails = []
@@ -676,12 +638,6 @@ async def resolve_artwork_image(
     ):
         return shared_artwork_path, "official"
 
-    logger.warning(
-        "Real YouTube artwork fetch failed for videoid=%s (both direct URLs and "
-        "yt-dlp extraction failed) - using local fallback art instead. "
-        "Enable DEBUG logging on the 'thumbnails' logger for the exact cause.",
-        videoid,
-    )
     if create_local_fallback_art(fallback_output_path, title=title, channel=channel):
         return fallback_output_path, "fallback"
 
