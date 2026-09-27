@@ -243,79 +243,6 @@ class YouTubeAPI:
         }
         self._background_cache_tasks = {}
 
-    def _cache_filepath(self, vid_id: str, video: bool = False) -> str:
-        ext = "mp4" if video else "mp3"
-        return os.path.join("downloads", f"{vid_id}.{ext}")
-
-    async def prefetch(self, vid_id: str, video: Union[bool, str] = False) -> None:
-        """
-        Force a FULL download (not just a fast direct stream URL) of a video id
-        in the background, so the file is already sitting on disk, ready to
-        play instantly, by the time the queue reaches it.
-
-        Call this as soon as a song STARTS playing, passing the ID of the
-        NEXT song in the queue (if any). Safe to call more than once for the
-        same id -> download() already de-dupes via cached_media_ready() and
-        self._background_cache_tasks, so it won't download twice.
-        """
-        if not vid_id:
-            return
-        filepath = self._cache_filepath(vid_id, video=video)
-        try:
-            if os.path.exists(filepath) and os.path.getsize(filepath) >= MIN_CACHED_MEDIA_BYTES:
-                return  # already cached, nothing to do
-        except Exception:
-            pass
-        try:
-            # stream=False forces the real download path instead of just
-            # resolving a play-only URL.
-            await self.download(vid_id, None, video=bool(video), videoid=True, stream=False)
-        except Exception as exc:
-            logger.warning("Prefetch failed for video_id=%s: %s", vid_id, exc)
-
-    def prefetch_in_background(self, vid_id: str, video: Union[bool, str] = False):
-        """
-        Fire-and-forget wrapper around prefetch(): kicks off the download as
-        an asyncio task and returns immediately, so it never blocks whatever
-        is currently playing/streaming.
-        """
-        if not vid_id:
-            return None
-        return asyncio.create_task(self.prefetch(vid_id, video=video))
-
-    def cleanup(self, vid_id: str, video: Union[bool, str] = False) -> bool:
-        """
-        Delete the cached/downloaded file for a video id once it's finished
-        playing and is no longer needed (e.g. it's not queued again).
-
-        Call this right after you move on to the NEXT track, passing the ID
-        of the track that JUST finished. Skips safely if a background
-        download for that same file is still running, or if the file is
-        already gone.
-        """
-        if not vid_id:
-            return False
-        filepath = self._cache_filepath(vid_id, video=video)
-        task = self._background_cache_tasks.get(filepath)
-        if task and not task.done():
-            logger.info(
-                "Skipping cleanup, background cache still running | video_id=%s",
-                vid_id,
-            )
-            return False
-        try:
-            if os.path.exists(filepath):
-                os.remove(filepath)
-                logger.info(
-                    "Removed cached file for finished track | video_id=%s | path=%s",
-                    vid_id,
-                    filepath,
-                )
-            return True
-        except Exception as exc:
-            logger.warning("Failed to remove cached file %s: %s", filepath, exc)
-            return False
-
     def _has_disallowed_url_chars(self, link: str) -> bool:
         return any(char in link for char in [";", "&", "|", "$", "\n", "\r", "`"])
 
@@ -1102,7 +1029,7 @@ class YouTubeAPI:
                 message,
             )
 
-        def schedule_worker_background_cache(media, filepath, media_type, vid_id, headers=None):
+        def schedule_worker_background_cache(media, filepath, media_type, vid_id):
             cache_url = (media or {}).get("cache_url") or (media or {}).get("play_url")
             if not cache_url:
                 return
@@ -1115,7 +1042,7 @@ class YouTubeAPI:
                 (media or {}).get("cache_key") or "-",
                 cache_url == (media or {}).get("play_url"),
             )
-            schedule_background_cache(cache_url, filepath, headers)
+            schedule_background_cache(cache_url, filepath)
 
         def fetch_worker_fallback_links_sync(vid_id, media_format):
             if not WORKER_FALLBACK_API_URL or not WORKER_FALLBACK_API_KEY:
@@ -1226,9 +1153,9 @@ class YouTubeAPI:
                 worker_audio_cache_url = worker_audio.get("cache_url") or worker_audio_url
                 if stream and await validate_stream_source(worker_audio_url):
                     mark_source(vid_id, "audio", "WORKER PRIMARY")
-                    schedule_worker_background_cache(worker_audio, filepath, "audio", vid_id, headers)
+                    schedule_worker_background_cache(worker_audio, filepath, "audio", vid_id)
                     return worker_audio_url, False
-                result = await download_from_source(worker_audio_cache_url, filepath, headers)
+                result = await download_from_source(worker_audio_cache_url, filepath)
                 if result:
                     mark_source(vid_id, "audio", "WORKER PRIMARY")
                     return result, True
@@ -1314,9 +1241,9 @@ class YouTubeAPI:
                 worker_video_cache_url = worker_video.get("cache_url") or worker_video_url
                 if stream and await validate_stream_source(worker_video_url):
                     mark_source(vid_id, "video", "WORKER PRIMARY")
-                    schedule_worker_background_cache(worker_video, filepath, "video", vid_id, headers)
+                    schedule_worker_background_cache(worker_video, filepath, "video", vid_id)
                     return worker_video_url, False
-                result = await download_from_source(worker_video_cache_url, filepath, headers)
+                result = await download_from_source(worker_video_cache_url, filepath)
                 if result:
                     mark_source(vid_id, "video", "WORKER PRIMARY")
                     return result, True
