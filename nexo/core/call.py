@@ -121,33 +121,12 @@ def validate_stream_path(path: str) -> str:
     return path
 
 
-_AUDIO_QUALITY_MAP = {
-    "LOW": AudioQuality.LOW,
-    "MEDIUM": AudioQuality.MEDIUM,
-    "HIGH": AudioQuality.HIGH,
-    "STUDIO": AudioQuality.STUDIO,
-}
-
-
-def _resolve_audio_quality(video: bool) -> AudioQuality:
-    if video:
-        return AudioQuality.MEDIUM
-
-    # STUDIO is the highest bitrate ntgcalls supports. On VPS with limited
-    # CPU/bandwidth it's the most common cause of choppy/stuttering playback.
-    # Default to HIGH (still very good quality) and allow overriding via
-    # config.STREAM_AUDIO_QUALITY (e.g. "STUDIO", "MEDIUM", "LOW") for users
-    # on beefier servers who want maximum fidelity.
-    configured = str(getattr(config, "STREAM_AUDIO_QUALITY", "HIGH") or "HIGH").upper()
-    return _AUDIO_QUALITY_MAP.get(configured, AudioQuality.HIGH)
-
-
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
     path = validate_stream_path(path)
     return MediaStream(
         audio_path=path,
         media_path=path,
-        audio_parameters=_resolve_audio_quality(video),
+        audio_parameters=AudioQuality.MEDIUM if video else AudioQuality.STUDIO,
         video_parameters=VideoQuality.HD_720p if video else VideoQuality.SD_360p,
         video_flags=(MediaStream.Flags.AUTO_DETECT if video else MediaStream.Flags.IGNORE),
         ffmpeg_parameters=ffmpeg_params,
