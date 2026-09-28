@@ -108,7 +108,7 @@ def time_to_seconds(time: str) -> int:
 DURATION_LIMIT = time_to_seconds(f"{DURATION_LIMIT_MIN}:00")
 
 # ───── Bot Introduction Messages ───── #
-AYU = ["🎶 ʟᴏᴀᴅɪɴɢ..."]
+AYU = ["🥀 𝐏ɤσƈɛssɩŋʛ..."]
 
 AYUV = [
     "🎧 **{1}**\n\n"
