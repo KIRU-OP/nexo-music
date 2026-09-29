@@ -1,6 +1,7 @@
 import asyncio
 import os
 import time
+from collections import deque
 from datetime import datetime, timedelta
 from typing import Union
 
@@ -141,7 +142,12 @@ def is_too_many_open_files(err: Exception) -> bool:
     return getattr(err, "errno", None) == 24 or "too many open files" in str(err).lower()
 
 
+# har chat ke last played tracks (autoplay loop rokne ke liye)
+_autoplay_history: dict = {}
+
+
 async def _clear_(chat_id: int) -> None:
+    _autoplay_history.pop(chat_id, None)
     _cancel_playback_watchdog(chat_id)
     _cancel_empty_vc_watchdog(chat_id)
     playback_recovery_attempts.pop(chat_id, None)
@@ -982,28 +988,47 @@ class Call:
         if not videoid or videoid in {"telegram", "soundcloud"}:
             return False
 
+        history = _autoplay_history.setdefault(chat_id, deque(maxlen=30))
+        if not any(h["vidid"] == videoid for h in history):
+            history.append({"vidid": videoid, "title": finished_track.get("title", "")})
+        played_ids = {h["vidid"] for h in history}
+
         seed_seconds = int(finished_track.get("seconds") or 0)
         max_duration = None
         if seed_seconds > 0:
             max_duration = min(max(seed_seconds * 3, 240), 900)
 
-        try:
-            recommendation = await YouTube.autoplay(
-                videoid,
-                finished_track.get("title", ""),
-                max_duration=max_duration,
-            )
-        except Exception as err:
-            LOGGER(__name__).warning(
-                "Autoplay lookup failed for chat %s on %s: %s",
-                chat_id,
-                videoid,
-                err,
-            )
-            return False
+        # pehle current song se try karo, phir purane played songs ko seed banao
+        seeds = [(videoid, finished_track.get("title", ""))]
+        seeds += [(h["vidid"], h["title"]) for h in reversed(history) if h["vidid"] != videoid]
+
+        recommendation = None
+        for seed_id, seed_title in seeds[:6]:
+            try:
+                candidate = await YouTube.autoplay(
+                    seed_id,
+                    seed_title,
+                    max_duration=max_duration,
+                    exclude_ids=played_ids,
+                )
+            except Exception as err:
+                LOGGER(__name__).warning(
+                    "Autoplay lookup failed for chat %s on %s: %s",
+                    chat_id,
+                    seed_id,
+                    err,
+                )
+                continue
+            if candidate and candidate.get("vidid") not in played_ids:
+                recommendation = candidate
+                break
 
         if not recommendation:
             return False
+
+        history.append(
+            {"vidid": recommendation["vidid"], "title": recommendation["title"]}
+        )
 
         db.setdefault(chat_id, []).append(
             {
@@ -1221,7 +1246,7 @@ class Call:
                     return await app.send_message(original_chat_id, text=_["call_6"])
                 self._schedule_playback_watchdog(client, chat_id)
 
-                button = stream_markup(_, chat_id)
+                button = stream_markup(_, chat_id, await get_autoplay(chat_id))
                 schedule_stream_card(
                     chat_id=chat_id,
                     original_chat_id=original_chat_id,
@@ -1296,7 +1321,7 @@ class Call:
                         return await app.send_message(original_chat_id, text=_["call_6"])
                 self._schedule_playback_watchdog(client, chat_id)
 
-                button = stream_markup(_, chat_id)
+                button = stream_markup(_, chat_id, await get_autoplay(chat_id))
                 await mystic.delete()
                 schedule_youtube_precache_for_chat(chat_id)
                 schedule_stream_card(
@@ -1331,7 +1356,7 @@ class Call:
                     return await app.send_message(original_chat_id, text=_["call_6"])
                 self._schedule_playback_watchdog(client, chat_id)
 
-                button = stream_markup(_, chat_id)
+                button = stream_markup(_, chat_id, await get_autoplay(chat_id))
                 run = await app.send_photo(
                     chat_id=original_chat_id,
                     photo=config.STREAM_IMG_URL,
@@ -1352,7 +1377,7 @@ class Call:
                 self._schedule_playback_watchdog(client, chat_id)
 
                 if videoid == "telegram":
-                    button = stream_markup(_, chat_id)
+                    button = stream_markup(_, chat_id, await get_autoplay(chat_id))
                     run = await app.send_photo(
                         chat_id=original_chat_id,
                         photo=(
@@ -1370,7 +1395,7 @@ class Call:
                     db[chat_id][0]["markup"] = "tg"
 
                 elif videoid == "soundcloud":
-                    button = stream_markup(_, chat_id)
+                    button = stream_markup(_, chat_id, await get_autoplay(chat_id))
                     run = await app.send_photo(
                         chat_id=original_chat_id,
                         photo=config.SOUNCLOUD_IMG_URL,
@@ -1384,7 +1409,7 @@ class Call:
                     db[chat_id][0]["markup"] = "tg"
 
                 else:
-                    button = stream_markup(_, chat_id)
+                    button = stream_markup(_, chat_id, await get_autoplay(chat_id))
                     schedule_stream_card(
                         chat_id=chat_id,
                         original_chat_id=original_chat_id,
