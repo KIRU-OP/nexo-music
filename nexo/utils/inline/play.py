@@ -5,6 +5,23 @@ from nexo.utils.formatters import time_to_seconds
 
 LAST_UPDATE_TIME = {}
 
+# chat_id -> autoplay ON/OFF (button label ke liye cache)
+AUTOPLAY_UI = {}
+
+
+def set_autoplay_ui(chat_id, state: bool):
+    AUTOPLAY_UI[chat_id] = bool(state)
+
+
+def autoplay_button(chat_id, state=None):
+    if state is None:
+        state = AUTOPLAY_UI.get(chat_id)
+    if state is None:
+        return primary_button(text="⟳ Autoplay", callback_data=f"AutoplayToggle|{chat_id}")
+    if state:
+        return success_button(text="⟳ Autoplay: ON", callback_data=f"AutoplayToggle|{chat_id}")
+    return danger_button(text="⟳ Autoplay: OFF", callback_data=f"AutoplayToggle|{chat_id}")
+
 
 def track_markup(_, videoid, user_id, channel, fplay):
     return [
@@ -47,17 +64,22 @@ def generate_progress_bar(played_sec, duration_sec):
     return "▰" * filled + "▱" * (bar_length - filled)
 
 
-def control_buttons(_, chat_id):
-    return [[
-        success_button(text="▷", callback_data=f"ADMIN Resume|{chat_id}"),
-        primary_button(text="II", callback_data=f"ADMIN Pause|{chat_id}"),
-        InlineKeyboardButton(text="↻", callback_data=f"ADMIN Replay|{chat_id}"),
-        primary_button(text="‣‣I", callback_data=f"ADMIN Skip|{chat_id}"),
-        danger_button(text="▢", callback_data=f"ADMIN Stop|{chat_id}"),
-    ]]
+def control_buttons(_, chat_id, autoplay=None):
+    if autoplay is not None:
+        set_autoplay_ui(chat_id, autoplay)
+    return [
+        [
+            success_button(text="▷", callback_data=f"ADMIN Resume|{chat_id}"),
+            primary_button(text="II", callback_data=f"ADMIN Pause|{chat_id}"),
+            InlineKeyboardButton(text="↻", callback_data=f"ADMIN Replay|{chat_id}"),
+            primary_button(text="‣‣I", callback_data=f"ADMIN Skip|{chat_id}"),
+            danger_button(text="▢", callback_data=f"ADMIN Stop|{chat_id}"),
+        ],
+        [autoplay_button(chat_id)],
+    ]
 
 
-def stream_markup_timer(_, chat_id, played, dur):
+def stream_markup_timer(_, chat_id, played, dur, autoplay=None):
     if not should_update_progress(chat_id):
         return None
 
@@ -67,13 +89,13 @@ def stream_markup_timer(_, chat_id, played, dur):
 
     return (
         [[InlineKeyboardButton(text=f"{played} {bar} {dur}", callback_data="GetTimer")]] +
-        control_buttons(_, chat_id) +
+        control_buttons(_, chat_id, autoplay) +
         [[danger_button(text=_["CLOSE_BUTTON"], callback_data="close")]]
     )
 
 
-def stream_markup(_, chat_id):
-    return control_buttons(_, chat_id) + [[danger_button(text=_["CLOSE_BUTTON"], callback_data="close")]]
+def stream_markup(_, chat_id, autoplay=None):
+    return control_buttons(_, chat_id, autoplay) + [[danger_button(text=_["CLOSE_BUTTON"], callback_data="close")]]
 
 
 def playlist_markup(_, videoid, user_id, ptype, channel, fplay):
