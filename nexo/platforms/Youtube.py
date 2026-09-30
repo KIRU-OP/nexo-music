@@ -26,7 +26,7 @@ from nexo.utils.formatters import time_to_seconds
 from nexo.utils.url_guard import is_safe_media_url
 from nexo.security import build_subprocess_env
 from nexo.utils.stream.source_status import set_youtube_source_status
-from config import DURATION_LIMIT, autoclean
+from config import DURATION_LIMIT, YT_API_KEY, YTPROXY_URL, autoclean
 
 logger = LOGGER(__name__)
 
@@ -36,10 +36,8 @@ WORKER_FALLBACK_API_URL = os.getenv(
     "https://youtubenewapi.skybotsdeveloper.workers.dev",
 ).strip()
 WORKER_FALLBACK_API_KEY = os.getenv("WORKER_FALLBACK_API_KEY", "itsmesid").strip()
-# Shruti API (primary backend). Key: Telegram bot @SHRUTIAPIBOT
-SHRUTI_API_URL = os.getenv("SHRUTI_API_URL", "https://api.shrutibots.site").strip().rstrip("/")
-SHRUTI_API_KEY = os.getenv("SHRUTI_API_KEY", "ShrutiBots4ECgHKlfLSzs9FLUNTdw").strip()
-_shruti_locks: dict = {}
+YTPROXY = (YTPROXY_URL or "").strip().rstrip("/")
+YT_API_KEY = (YT_API_KEY or "").strip()
 MIN_CACHED_MEDIA_BYTES = 128 * 1024
 DOWNLOAD_CACHE_EXTENSIONS = (".m4a", ".mp3", ".mp4", ".webm")
 
@@ -63,7 +61,6 @@ STREAM_PREFLIGHT_TIMEOUT = max(3, int_env("YOUTUBE_STREAM_PREFLIGHT_TIMEOUT", 15
 STREAM_PREFLIGHT_ENABLED = bool_env("YOUTUBE_STREAM_PREFLIGHT", True)
 DOWNLOAD_CACHE_MAX_BYTES = max(0, int_env("DOWNLOAD_CACHE_MAX_MB", 2048)) * 1024 * 1024
 DOWNLOAD_CACHE_MIN_FREE_BYTES = max(0, int_env("DOWNLOAD_CACHE_MIN_FREE_MB", 512)) * 1024 * 1024
-SHRUTI_API_READ_TIMEOUT = max(10, int_env("SHRUTI_API_READ_TIMEOUT", 120))
 WORKER_FALLBACK_API_ATTEMPTS = min(3, max(1, int_env("WORKER_FALLBACK_API_ATTEMPTS", 3)))
 WORKER_FALLBACK_API_RETRY_DELAY_MS = min(
     5000,
@@ -1004,10 +1001,10 @@ class YouTubeAPI:
             state = "OK" if ok else "FAILED"
             pretty_sources = {
                 "LOCAL CACHE": "local cache",
-                "SHRUTI PRIMARY": "shruti primary",
                 "WORKER PRIMARY": "worker primary",
                 "WORKER FALLBACK": "worker fallback",
-                "SHRUTI + WORKER": "shruti + worker",
+                "XBIT FALLBACK": "xBit fallback",
+                "WORKER PRIMARY + XBIT FALLBACK": "worker primary + xBit fallback",
             }
             pretty_media = {"audio": "audio", "video": "video"}.get(media_type, media_type)
             pretty_state = "ok" if ok else "failed"
@@ -1025,12 +1022,30 @@ class YouTubeAPI:
                 log_title,
             )
 
+        def log_primary_api_issue(media_type, vid_id, message):
+            if WORKER_FALLBACK_API_URL and WORKER_FALLBACK_API_KEY:
+                logger.info(
+                    "xBit fallback API failed | media=%s | video_id=%s | title=%s | reason=%s | next=none",
+                    media_type,
+                    vid_id,
+                    log_title,
+                    message,
+                )
+                return
+            logger.warning(
+                "xBit fallback API failed | media=%s | video_id=%s | title=%s | reason=%s | next=none",
+                media_type,
+                vid_id,
+                log_title,
+                message,
+            )
+
         def schedule_worker_background_cache(media, filepath, media_type, vid_id):
             cache_url = (media or {}).get("cache_url") or (media or {}).get("play_url")
             if not cache_url:
                 return
             logger.info(
-                "YouTube background cache scheduled | source=worker_fallback | media=%s | video_id=%s | title=%s | play_link=%s | cache_link=%s | same_url=%s",
+                "YouTube background cache scheduled | source=worker_primary | media=%s | video_id=%s | title=%s | play_link=%s | cache_link=%s | same_url=%s",
                 media_type,
                 vid_id,
                 log_title,
@@ -1123,79 +1138,6 @@ class YouTubeAPI:
                 None, fetch_worker_fallback_links_sync, vid_id, media_format
             )
 
-        def fetch_shruti_sync(vid_id, media_type, filepath):
-            if not SHRUTI_API_KEY:
-                logger.info("Shruti API key not set (SHRUTI_API_KEY). Skipping Shruti.")
-                return None
-
-            def safe(text):
-                return str(text).replace(SHRUTI_API_KEY, "***")
-
-            temp_filepath = partial_path(filepath)
-            session = None
-            try:
-                os.makedirs("downloads", exist_ok=True)
-                if os.path.exists(temp_filepath):
-                    os.remove(temp_filepath)
-                session = create_session()
-                with session.get(
-                    f"{SHRUTI_API_URL}/download",
-                    params={"url": vid_id, "type": media_type, "api_key": SHRUTI_API_KEY},
-                    stream=True,
-                    timeout=(10, SHRUTI_API_READ_TIMEOUT),
-                ) as resp:
-                    ctype = resp.headers.get("Content-Type", "").lower()
-                    if resp.status_code != 200:
-                        logger.error(
-                            "Shruti API failed | media=%s | video_id=%s | status=%s",
-                            media_type, vid_id, resp.status_code,
-                        )
-                        return None
-                    if any(t in ctype for t in ("json", "text", "html")):
-                        logger.error(
-                            "Shruti API returned non-media | media=%s | video_id=%s | body=%s",
-                            media_type, vid_id, safe(resp.text[:200]),
-                        )
-                        return None
-                    with open(temp_filepath, "wb") as f:
-                        for chunk in resp.iter_content(chunk_size=131072):
-                            if chunk:
-                                f.write(chunk)
-                if os.path.getsize(temp_filepath) < MIN_CACHED_MEDIA_BYTES:
-                    logger.error(
-                        "Shruti API file too small | media=%s | video_id=%s", media_type, vid_id
-                    )
-                    os.remove(temp_filepath)
-                    return None
-                os.replace(temp_filepath, filepath)
-                return filepath
-            except Exception as e:
-                logger.error(
-                    "Shruti API failed | media=%s | video_id=%s | reason=%s",
-                    media_type, vid_id, safe(e),
-                )
-                try:
-                    if os.path.exists(temp_filepath):
-                        os.remove(temp_filepath)
-                except Exception:
-                    pass
-                return None
-            finally:
-                if session:
-                    session.close()
-
-        async def get_shruti_file(vid_id, media_type, filepath):
-            lock = _shruti_locks.setdefault(filepath, asyncio.Lock())
-            async with lock:
-                if cached_media_ready(filepath):
-                    return filepath
-                result = await loop.run_in_executor(
-                    None, fetch_shruti_sync, vid_id, media_type, filepath
-                )
-            if result:
-                enforce_download_cache_budget()
-            return result
-
         async def audio_dl(vid_id):
             filepath = os.path.join("downloads", f"{vid_id}.mp3")
             if cached_media_ready(filepath):
@@ -1211,29 +1153,73 @@ class YouTubeAPI:
                 if cached:
                     return cached, True
 
-            shruti_audio = await get_shruti_file(vid_id, "audio", filepath)
-            if shruti_audio:
-                mark_source(vid_id, "audio", "SHRUTI PRIMARY")
-                return shruti_audio, True
-            logger.warning("Shruti audio failed, trying worker fallback.")
+            headers = {
+                "x-api-key": f"{YT_API_KEY}",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
 
             worker_audio = await get_worker_fallback_links(vid_id, "mp3")
             if worker_audio:
                 worker_audio_url = worker_audio.get("play_url")
                 worker_audio_cache_url = worker_audio.get("cache_url") or worker_audio_url
                 if stream and await validate_stream_source(worker_audio_url):
-                    mark_source(vid_id, "audio", "WORKER FALLBACK")
+                    mark_source(vid_id, "audio", "WORKER PRIMARY")
                     schedule_worker_background_cache(worker_audio, filepath, "audio", vid_id)
                     return worker_audio_url, False
                 result = await download_from_source(worker_audio_cache_url, filepath)
                 if result:
-                    mark_source(vid_id, "audio", "WORKER FALLBACK")
+                    mark_source(vid_id, "audio", "WORKER PRIMARY")
                     return result, True
-                logger.warning("Worker audio URL download failed.")
+                logger.warning("Worker audio URL download failed, trying xBit fallback.")
 
-            mark_source(vid_id, "audio", "SHRUTI + WORKER", ok=False)
+            xbit_audio_url = None
+            if YT_API_KEY and YTPROXY:
+                session = None
+                try:
+                    session = create_session()
+                    get_audio = session.get(f"{YTPROXY}/info/{vid_id}", headers=headers, timeout=60)
+                    song_data = get_audio.json()
+                    status = song_data.get('status')
+
+                    if status == 'success':
+                        xbit_audio_url = song_data.get('audio_url')
+                    elif status == 'error':
+                        log_primary_api_issue(
+                            "audio",
+                            vid_id,
+                            song_data.get('message', 'Unknown error from API.'),
+                        )
+                    else:
+                        log_primary_api_issue(
+                            "audio",
+                            vid_id,
+                            "unexpected response while fetching audio",
+                        )
+                except requests.exceptions.RequestException as e:
+                    log_primary_api_issue("audio", vid_id, f"network error: {str(e)}")
+                except json.JSONDecodeError as e:
+                    log_primary_api_issue("audio", vid_id, f"invalid response: {str(e)}")
+                except Exception as e:
+                    log_primary_api_issue("audio", vid_id, str(e))
+                finally:
+                    if session:
+                        session.close()
+            else:
+                logger.info("xBit fallback not configured for audio.")
+
+            if xbit_audio_url:
+                if stream and await validate_stream_source(xbit_audio_url):
+                    mark_source(vid_id, "audio", "XBIT FALLBACK")
+                    schedule_background_cache(xbit_audio_url, filepath, headers)
+                    return xbit_audio_url, False
+                result = await download_from_source(xbit_audio_url, filepath, headers)
+                if result:
+                    mark_source(vid_id, "audio", "XBIT FALLBACK")
+                    return result, True
+
+            mark_source(vid_id, "audio", "WORKER PRIMARY + XBIT FALLBACK", ok=False)
             logger.error(
-                "YouTube source failed | sources=shruti_primary,worker_fallback | media=audio | video_id=%s | title=%s",
+                "YouTube source failed | sources=worker_primary,xbit_fallback | media=audio | video_id=%s | title=%s",
                 vid_id,
                 log_title,
             )
@@ -1255,29 +1241,73 @@ class YouTubeAPI:
                 if cached:
                     return cached, True
 
-            shruti_video = await get_shruti_file(vid_id, "video", filepath)
-            if shruti_video:
-                mark_source(vid_id, "video", "SHRUTI PRIMARY")
-                return shruti_video, True
-            logger.warning("Shruti video failed, trying worker fallback.")
+            headers = {
+                "x-api-key": f"{YT_API_KEY}",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
 
             worker_video = await get_worker_fallback_links(vid_id, "mp4")
             if worker_video:
                 worker_video_url = worker_video.get("play_url")
                 worker_video_cache_url = worker_video.get("cache_url") or worker_video_url
                 if stream and await validate_stream_source(worker_video_url):
-                    mark_source(vid_id, "video", "WORKER FALLBACK")
+                    mark_source(vid_id, "video", "WORKER PRIMARY")
                     schedule_worker_background_cache(worker_video, filepath, "video", vid_id)
                     return worker_video_url, False
                 result = await download_from_source(worker_video_cache_url, filepath)
                 if result:
-                    mark_source(vid_id, "video", "WORKER FALLBACK")
+                    mark_source(vid_id, "video", "WORKER PRIMARY")
                     return result, True
-                logger.warning("Worker video URL download failed.")
+                logger.warning("Worker video URL download failed, trying xBit fallback.")
 
-            mark_source(vid_id, "video", "SHRUTI + WORKER", ok=False)
+            xbit_video_url = None
+            if YT_API_KEY and YTPROXY:
+                session = None
+                try:
+                    session = create_session()
+                    get_video = session.get(f"{YTPROXY}/info/{vid_id}", headers=headers, timeout=60)
+                    video_data = get_video.json()
+                    status = video_data.get('status')
+
+                    if status == 'success':
+                        xbit_video_url = video_data.get('video_url')
+                    elif status == 'error':
+                        log_primary_api_issue(
+                            "video",
+                            vid_id,
+                            video_data.get('message', 'Unknown error from API.'),
+                        )
+                    else:
+                        log_primary_api_issue(
+                            "video",
+                            vid_id,
+                            "unexpected response while fetching video",
+                        )
+                except requests.exceptions.RequestException as e:
+                    log_primary_api_issue("video", vid_id, f"network error: {str(e)}")
+                except json.JSONDecodeError as e:
+                    log_primary_api_issue("video", vid_id, f"invalid response: {str(e)}")
+                except Exception as e:
+                    log_primary_api_issue("video", vid_id, str(e))
+                finally:
+                    if session:
+                        session.close()
+            else:
+                logger.info("xBit fallback not configured for video.")
+
+            if xbit_video_url:
+                if stream and await validate_stream_source(xbit_video_url):
+                    mark_source(vid_id, "video", "XBIT FALLBACK")
+                    schedule_background_cache(xbit_video_url, filepath, headers)
+                    return xbit_video_url, False
+                result = await download_from_source(xbit_video_url, filepath, headers)
+                if result:
+                    mark_source(vid_id, "video", "XBIT FALLBACK")
+                    return result, True
+
+            mark_source(vid_id, "video", "WORKER PRIMARY + XBIT FALLBACK", ok=False)
             logger.error(
-                "YouTube source failed | sources=shruti_primary,worker_fallback | media=video | video_id=%s | title=%s",
+                "YouTube source failed | sources=worker_primary,xbit_fallback | media=video | video_id=%s | title=%s",
                 vid_id,
                 log_title,
             )
