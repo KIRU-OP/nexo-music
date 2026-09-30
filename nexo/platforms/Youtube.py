@@ -38,7 +38,7 @@ WORKER_FALLBACK_API_URL = os.getenv(
 WORKER_FALLBACK_API_KEY = os.getenv("WORKER_FALLBACK_API_KEY", "itsmesid").strip()
 # Shruti API (primary backend). Key: Telegram bot @SHRUTIAPIBOT
 SHRUTI_API_URL = os.getenv("SHRUTI_API_URL", "https://api.shrutibots.site").strip().rstrip("/")
-SHRUTI_API_KEY = os.getenv("SHRUTI_API_KEY", "").strip()
+SHRUTI_API_KEY = os.getenv("SHRUTI_API_KEY", "ShrutiBots4ECgHKlfLSzs9FLUNTdw").strip()
 _shruti_locks: dict = {}
 MIN_CACHED_MEDIA_BYTES = 128 * 1024
 DOWNLOAD_CACHE_EXTENSIONS = (".m4a", ".mp3", ".mp4", ".webm")
