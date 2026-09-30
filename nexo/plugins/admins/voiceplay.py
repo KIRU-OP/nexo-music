@@ -7,14 +7,14 @@ from pyrogram.types import (
 )
 
 from config import BANNED_USERS
-from VIVAANXMUSIC import app
-from VIVAANXMUSIC.utils.database import (
+from nexo import app
+from nexo.utils.database import (
     enable_voiceplay_exclusive,
     get_voiceplay,
     set_voiceplay,
 )
-from VIVAANXMUSIC.utils.decorators.admins import ActualAdminCB, AdminActual
-from VIVAANXMUSIC.utils.voiceplay import voiceplay_manager
+from nexo.utils.decorators.admins import ActualAdminCB, AdminActual
+from nexo.utils.voiceplay import voiceplay_manager
 
 
 def _language_keyboard(user_id: int) -> InlineKeyboardMarkup:
