@@ -2,8 +2,8 @@ import asyncio
 import random
 from typing import Dict, List, Union
 
-from VIVAANXMUSIC import userbot
-from VIVAANXMUSIC.core.mongo import mongodb
+from nexo import userbot
+from nexo.core.mongo import mongodb
 
 authdb = mongodb.adminauth
 authuserdb = mongodb.authuser
