@@ -105,7 +105,7 @@ async def init():
     )
     await idle()
     try:
-        weather_plugin = importlib.import_module("VIVAANXMUSIC.plugins.Kishu.weather")
+        weather_plugin = importlib.import_module("nexo.plugins.Kishu.weather")
         await weather_plugin.close_weather_http_client()
     except Exception:
         pass
