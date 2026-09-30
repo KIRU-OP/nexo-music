@@ -67,6 +67,37 @@ WORKER_FALLBACK_API_RETRY_DELAY_MS = min(
     max(0, int_env("WORKER_FALLBACK_API_RETRY_DELAY_MS", 1000)),
 )
 
+_direct_cache = {}  # vid_id -> (url, expiry_timestamp)
+DIRECT_STREAM_ENABLED = bool_env("YOUTUBE_DIRECT_STREAM", True)
+DIRECT_STREAM_TTL = 3 * 3600
+
+
+async def direct_stream_url(vid_id):
+    """Extract a direct googlevideo audio URL with yt-dlp (no API, no download)."""
+    hit = _direct_cache.get(vid_id)
+    if hit and hit[1] > time.time():
+        return hit[0]
+
+    def _extract():
+        opts = {
+            "format": "bestaudio[ext=m4a]/bestaudio/best",
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": True,
+            "skip_download": True,
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(
+                f"https://www.youtube.com/watch?v={vid_id}", download=False
+            )
+            return info.get("url")
+
+    url = await asyncio.get_running_loop().run_in_executor(None, _extract)
+    if url:
+        _direct_cache[vid_id] = (url, time.time() + DIRECT_STREAM_TTL)
+    return url
+
+
 def build_yt_dlp_args(args: list[str]) -> list[str]:
     return list(args)
 
@@ -1146,6 +1177,15 @@ class YouTubeAPI:
                 "x-api-key": f"{YT_API_KEY}",
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             }
+
+            if stream and DIRECT_STREAM_ENABLED:
+                try:
+                    direct_url = await direct_stream_url(vid_id)
+                    if direct_url and await validate_stream_source(direct_url):
+                        mark_source(vid_id, "audio", "DIRECT")
+                        return direct_url, False
+                except Exception as err:
+                    logger.warning("Direct yt-dlp stream failed, using worker: %s", err)
 
             worker_audio = await get_worker_fallback_links(vid_id, "mp3")
             if worker_audio:
