@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 MODULE_PATH = (
-    Path(__file__).resolve().parents[1] / "VIVAANXMUSIC" / "utils" / "voiceplay_text.py"
+    Path(__file__).resolve().parents[1] / "nexo" / "utils" / "voiceplay_text.py"
 )
 SPEC = importlib.util.spec_from_file_location("voiceplay_text", MODULE_PATH)
 voiceplay_text = importlib.util.module_from_spec(SPEC)
