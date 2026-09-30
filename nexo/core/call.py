@@ -1,7 +1,6 @@
 import asyncio
 import os
 import time
-from collections import deque
 from datetime import datetime, timedelta
 from typing import Union
 
@@ -16,40 +15,54 @@ from pyrogram.raw.types import PeerUser, UpdateGroupCallParticipants
 from pyrogram.types import InlineKeyboardMarkup
 from pytgcalls import PyTgCalls
 from pytgcalls.exceptions import NoActiveGroupCall
-from pytgcalls.types import AudioQuality, ChatUpdate, MediaStream, StreamEnded, Update, VideoQuality
+from pytgcalls.types import (
+    AudioQuality,
+    ChatUpdate,
+    Device,
+    Direction,
+    MediaStream,
+    StreamEnded,
+    StreamFrames,
+    Update,
+    VideoQuality,
+)
 
 import config
 from strings import get_string
-from nexo import LOGGER, YouTube, app
-from nexo.misc import db
-from nexo.utils.database import (
+from VIVAANXMUSIC import LOGGER, YouTube, app
+from VIVAANXMUSIC.misc import db
+from VIVAANXMUSIC.utils.database import (
     add_active_chat,
     add_active_video_chat,
     get_autoplay,
     get_lang,
     get_loop,
+    get_voiceplay,
     get_vcnotify,
     group_assistant,
     is_autoend,
     is_music_playing,
+    music_off,
     music_on,
     remove_active_chat,
     remove_active_video_chat,
+    set_autoplay,
     set_loop,
     set_vcnotify,
 )
-from nexo.utils.exceptions import AssistantErr
-from nexo.utils.formatters import check_duration, seconds_to_min, speed_converter
-from nexo.utils.inline.play import stream_markup
-from nexo.security import build_subprocess_env
-from nexo.utils.stream.autoclear import auto_clean
-from nexo.utils.stream.autodelete import (
+from VIVAANXMUSIC.utils.exceptions import AssistantErr
+from VIVAANXMUSIC.utils.formatters import check_duration, seconds_to_min, speed_converter
+from VIVAANXMUSIC.utils.inline.play import stream_markup
+from VIVAANXMUSIC.security import build_subprocess_env
+from VIVAANXMUSIC.utils.stream.autoclear import auto_clean
+from VIVAANXMUSIC.utils.stream.autodelete import (
     delete_queue_message,
     remember_player_message,
 )
-from nexo.utils.stream.cards import schedule_stream_card
-from nexo.utils.stream.precache import schedule_youtube_precache_for_chat
-from nexo.utils.errors import capture_internal_err, send_large_error
+from VIVAANXMUSIC.utils.stream.cards import schedule_stream_card
+from VIVAANXMUSIC.utils.stream.precache import schedule_youtube_precache_for_chat
+from VIVAANXMUSIC.utils.errors import capture_internal_err, send_large_error
+from VIVAANXMUSIC.utils.voiceplay_policy import should_prompt_after_track
 
 autoend = {}
 counter = {}
@@ -62,6 +75,7 @@ vc_join_targets = {}
 vc_join_call_map = {}
 vc_join_event_cache = {}
 vc_join_notice_cache = {}
+voice_prompt_suppression_until = {}
 
 PLAYBACK_WATCHDOG_GRACE_SECONDS = 20
 PLAYBACK_WATCHDOG_RECHECK_SECONDS = 30
@@ -124,7 +138,7 @@ def validate_stream_path(path: str) -> str:
 
 def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = None) -> MediaStream:
     path = validate_stream_path(path)
-    return MediaStream(
+    stream = MediaStream(
         audio_path=path,
         media_path=path,
         audio_parameters=AudioQuality.MEDIUM if video else AudioQuality.STUDIO,
@@ -132,6 +146,10 @@ def dynamic_media_stream(path: str, video: bool = False, ffmpeg_params: str = No
         video_flags=(MediaStream.Flags.AUTO_DETECT if video else MediaStream.Flags.IGNORE),
         ffmpeg_parameters=ffmpeg_params,
     )
+    stream._vivaan_source_path = path
+    stream._vivaan_video = bool(video)
+    stream._vivaan_ffmpeg_params = ffmpeg_params
+    return stream
 
 
 def is_groupcall_invalid(err: Exception) -> bool:
@@ -142,12 +160,7 @@ def is_too_many_open_files(err: Exception) -> bool:
     return getattr(err, "errno", None) == 24 or "too many open files" in str(err).lower()
 
 
-# har chat ke last played tracks (autoplay loop rokne ke liye)
-_autoplay_history: dict = {}
-
-
 async def _clear_(chat_id: int) -> None:
-    _autoplay_history.pop(chat_id, None)
     _cancel_playback_watchdog(chat_id)
     _cancel_empty_vc_watchdog(chat_id)
     playback_recovery_attempts.pop(chat_id, None)
@@ -169,6 +182,17 @@ async def _clear_(chat_id: int) -> None:
     await remove_active_video_chat(chat_id)
     await remove_active_chat(chat_id)
     await set_loop(chat_id, 0)
+    voice_prompt_suppression_until.pop(chat_id, None)
+    controller = globals().get("JARVIS")
+    if controller is not None:
+        controller._active_stream_specs.pop(chat_id, None)
+        controller._stream_generations.pop(chat_id, None)
+    try:
+        from VIVAANXMUSIC.utils.voiceplay import voiceplay_manager
+
+        await voiceplay_manager.stop_session(chat_id)
+    except Exception:
+        pass
 
 class Call:
     def __init__(self):
@@ -199,6 +223,8 @@ class Call:
 
         self.active_calls: set[int] = set()
         self._stream_locks: dict[int, asyncio.Lock] = {}
+        self._active_stream_specs: dict[int, dict] = {}
+        self._stream_generations: dict[int, int] = {}
 
 
     def _get_stream_lock(self, chat_id: int) -> asyncio.Lock:
@@ -212,7 +238,7 @@ class Call:
     def _ignored_vc_user_ids() -> set[int]:
         ignored = set()
         try:
-            from nexo.core.userbot import assistantids
+            from VIVAANXMUSIC.core.userbot import assistantids
 
             ignored.update(int(user_id) for user_id in assistantids if user_id)
         except Exception:
@@ -744,6 +770,16 @@ class Call:
             for attempt in range(2):
                 try:
                     await assistant.play(chat_id, stream)
+                    source_path = getattr(stream, "_vivaan_source_path", None)
+                    if source_path:
+                        self._active_stream_specs[chat_id] = {
+                            "path": source_path,
+                            "video": bool(getattr(stream, "_vivaan_video", False)),
+                            "ffmpeg_params": getattr(stream, "_vivaan_ffmpeg_params", None),
+                        }
+                        self._stream_generations[chat_id] = (
+                            self._stream_generations.get(chat_id, 0) + 1
+                        )
                     return
                 except OSError as err:
                     if err.errno != 24 or attempt == 1:
@@ -770,6 +806,119 @@ class Call:
                         )
                     await asyncio.sleep(1)
 
+    @staticmethod
+    def _resume_ffmpeg_params(existing: str, offset_seconds: int) -> str:
+        existing = str(existing or "").strip()
+        if offset_seconds <= 0:
+            return existing or None
+
+        import re
+
+        match = re.search(r"(?:^|\s)-ss\s+([0-9:.]+)", existing)
+        if match:
+            value = match.group(1)
+            try:
+                if ":" in value:
+                    parts = [float(part) for part in value.split(":")]
+                    base = 0.0
+                    for part in parts:
+                        base = base * 60 + part
+                else:
+                    base = float(value)
+                replacement = f"-ss {base + offset_seconds:.3f}"
+                return existing[: match.start()] + " " + replacement + existing[match.end() :]
+            except (TypeError, ValueError):
+                pass
+        return f"{existing} -ss {offset_seconds}".strip()
+
+    async def play_voice_prompt(
+        self,
+        chat_id: int,
+        prompt_path: str,
+        duration: float,
+        *,
+        restore: bool = True,
+    ) -> bool:
+        """Play a TTS prompt in VC and optionally resume the current track."""
+        if chat_id not in self.active_calls:
+            return False
+        assistant = await group_assistant(self, chat_id)
+        spec = dict(self._active_stream_specs.get(chat_id) or {})
+        if restore and not spec.get("path"):
+            return False
+
+        generation = self._stream_generations.get(chat_id, 0)
+        elapsed_seconds = 0
+        if restore:
+            try:
+                elapsed_seconds = max(0, int(await assistant.time(chat_id)))
+            except Exception:
+                pass
+
+        duration = min(max(float(duration), 0.8), 20.0)
+        voice_prompt_suppression_until[chat_id] = time.monotonic() + duration + 3
+        prompt_stream = dynamic_media_stream(prompt_path, video=False)
+
+        async with self._get_stream_lock(chat_id):
+            await assistant.play(chat_id, prompt_stream)
+        await asyncio.sleep(duration + 0.15)
+
+        if not restore:
+            self._active_stream_specs.pop(chat_id, None)
+            self._stream_generations.pop(chat_id, None)
+            return True
+        if chat_id not in self.active_calls:
+            return True
+        if self._stream_generations.get(chat_id, 0) != generation:
+            return True
+
+        resume_params = self._resume_ffmpeg_params(
+            spec.get("ffmpeg_params"),
+            elapsed_seconds,
+        )
+        resumed = dynamic_media_stream(
+            spec["path"],
+            video=bool(spec.get("video")),
+            ffmpeg_params=resume_params,
+        )
+        try:
+            async with self._get_stream_lock(chat_id):
+                await assistant.play(chat_id, resumed)
+        except Exception:
+            LOGGER(__name__).warning(
+                "Voice prompt seek-resume failed; restarting current track | chat_id=%s",
+                chat_id,
+            )
+            fallback = dynamic_media_stream(
+                spec["path"],
+                video=bool(spec.get("video")),
+                ffmpeg_params=spec.get("ffmpeg_params"),
+            )
+            async with self._get_stream_lock(chat_id):
+                await assistant.play(chat_id, fallback)
+        self._active_stream_specs[chat_id] = spec
+        voice_prompt_suppression_until[chat_id] = time.monotonic() + 0.75
+        return True
+
+    @staticmethod
+    def _schedule_voiceplay_round(chat_id: int, original_chat_id: int) -> None:
+        try:
+            from VIVAANXMUSIC.utils.voiceplay import voiceplay_manager
+
+            voiceplay_manager.schedule_song_finished(chat_id, original_chat_id)
+        except Exception as err:
+            LOGGER(__name__).warning(
+                "Unable to schedule Voice Play | chat_id=%s | reason=%s",
+                chat_id,
+                err,
+            )
+
+    @staticmethod
+    def suppress_stream_end(chat_id: int, seconds: float = 1.5) -> None:
+        voice_prompt_suppression_until[chat_id] = max(
+            voice_prompt_suppression_until.get(chat_id, 0),
+            time.monotonic() + max(0.1, seconds),
+        )
 
     @capture_internal_err
     async def pause_stream(self, chat_id: int) -> None:
@@ -988,47 +1137,28 @@ class Call:
         if not videoid or videoid in {"telegram", "soundcloud"}:
             return False
 
-        history = _autoplay_history.setdefault(chat_id, deque(maxlen=30))
-        if not any(h["vidid"] == videoid for h in history):
-            history.append({"vidid": videoid, "title": finished_track.get("title", "")})
-        played_ids = {h["vidid"] for h in history}
-
         seed_seconds = int(finished_track.get("seconds") or 0)
         max_duration = None
         if seed_seconds > 0:
             max_duration = min(max(seed_seconds * 3, 240), 900)
 
-        # pehle current song se try karo, phir purane played songs ko seed banao
-        seeds = [(videoid, finished_track.get("title", ""))]
-        seeds += [(h["vidid"], h["title"]) for h in reversed(history) if h["vidid"] != videoid]
-
-        recommendation = None
-        for seed_id, seed_title in seeds[:6]:
-            try:
-                candidate = await YouTube.autoplay(
-                    seed_id,
-                    seed_title,
-                    max_duration=max_duration,
-                    exclude_ids=played_ids,
-                )
-            except Exception as err:
-                LOGGER(__name__).warning(
-                    "Autoplay lookup failed for chat %s on %s: %s",
-                    chat_id,
-                    seed_id,
-                    err,
-                )
-                continue
-            if candidate and candidate.get("vidid") not in played_ids:
-                recommendation = candidate
-                break
+        try:
+            recommendation = await YouTube.autoplay(
+                videoid,
+                finished_track.get("title", ""),
+                max_duration=max_duration,
+            )
+        except Exception as err:
+            LOGGER(__name__).warning(
+                "Autoplay lookup failed for chat %s on %s: %s",
+                chat_id,
+                videoid,
+                err,
+            )
+            return False
 
         if not recommendation:
             return False
-
-        history.append(
-            {"vidid": recommendation["vidid"], "title": recommendation["title"]}
-        )
 
         db.setdefault(chat_id, []).append(
             {
@@ -1055,6 +1185,34 @@ class Call:
     ) -> bool:
         if db.get(chat_id):
             return False
+
+        voiceplay = await get_voiceplay(chat_id)
+        if should_prompt_after_track(
+            enabled=voiceplay["enabled"],
+            call_active=chat_id in self.active_calls,
+            queue_empty=not db.get(chat_id),
+            track_finished=bool(finished_track),
+        ):
+            # Heal legacy or externally edited records where both modes are on.
+            # Voice Play already won this queue-end decision, so persist that
+            # choice before opening its listening window.
+            if await get_autoplay(chat_id):
+                await set_autoplay(chat_id, False)
+            # The last song has naturally ended. Keep the assistant in the
+            # VC, mark playback idle so a spoken request starts immediately,
+            # and only now open the listening window.
+            await remove_active_video_chat(chat_id)
+            await remove_active_chat(chat_id)
+            await music_off(chat_id)
+            self._active_stream_specs.pop(chat_id, None)
+            self._stream_generations.pop(chat_id, None)
+            original_chat_id = (
+                finished_track.get("chat_id", chat_id)
+                if isinstance(finished_track, dict)
+                else chat_id
+            )
+            self._schedule_voiceplay_round(chat_id, original_chat_id)
+            return True
 
         if (
             allow_autoplay
@@ -1246,7 +1404,7 @@ class Call:
                     return await app.send_message(original_chat_id, text=_["call_6"])
                 self._schedule_playback_watchdog(client, chat_id)
 
-                button = stream_markup(_, chat_id, await get_autoplay(chat_id))
+                button = stream_markup(_, chat_id)
                 schedule_stream_card(
                     chat_id=chat_id,
                     original_chat_id=original_chat_id,
@@ -1321,7 +1479,7 @@ class Call:
                         return await app.send_message(original_chat_id, text=_["call_6"])
                 self._schedule_playback_watchdog(client, chat_id)
 
-                button = stream_markup(_, chat_id, await get_autoplay(chat_id))
+                button = stream_markup(_, chat_id)
                 await mystic.delete()
                 schedule_youtube_precache_for_chat(chat_id)
                 schedule_stream_card(
@@ -1356,7 +1514,7 @@ class Call:
                     return await app.send_message(original_chat_id, text=_["call_6"])
                 self._schedule_playback_watchdog(client, chat_id)
 
-                button = stream_markup(_, chat_id, await get_autoplay(chat_id))
+                button = stream_markup(_, chat_id)
                 run = await app.send_photo(
                     chat_id=original_chat_id,
                     photo=config.STREAM_IMG_URL,
@@ -1377,7 +1535,7 @@ class Call:
                 self._schedule_playback_watchdog(client, chat_id)
 
                 if videoid == "telegram":
-                    button = stream_markup(_, chat_id, await get_autoplay(chat_id))
+                    button = stream_markup(_, chat_id)
                     run = await app.send_photo(
                         chat_id=original_chat_id,
                         photo=(
@@ -1395,7 +1553,7 @@ class Call:
                     db[chat_id][0]["markup"] = "tg"
 
                 elif videoid == "soundcloud":
-                    button = stream_markup(_, chat_id, await get_autoplay(chat_id))
+                    button = stream_markup(_, chat_id)
                     run = await app.send_photo(
                         chat_id=original_chat_id,
                         photo=config.SOUNCLOUD_IMG_URL,
@@ -1409,7 +1567,7 @@ class Call:
                     db[chat_id][0]["markup"] = "tg"
 
                 else:
-                    button = stream_markup(_, chat_id, await get_autoplay(chat_id))
+                    button = stream_markup(_, chat_id)
                     schedule_stream_card(
                         chat_id=chat_id,
                         original_chat_id=original_chat_id,
@@ -1482,11 +1640,28 @@ class Call:
                         return
 
                 elif isinstance(update, StreamEnded):
-                    if update.stream_type == StreamEnded.Type.AUDIO:
+                    if (
+                        update.stream_type == StreamEnded.Type.AUDIO
+                        and update.device == Device.MICROPHONE
+                    ):
+                        if time.monotonic() < voice_prompt_suppression_until.get(
+                            update.chat_id, 0
+                        ):
+                            return
                         assistant = await group_assistant(self, update.chat_id)
                         if await self._recover_early_stream_end(assistant, update.chat_id):
                             return
                         await self.play(assistant, update.chat_id)
+
+                elif isinstance(update, StreamFrames):
+                    if not (
+                        update.direction == Direction.INCOMING
+                        and update.device == Device.MICROPHONE
+                    ):
+                        return
+                    from VIVAANXMUSIC.utils.voiceplay import voiceplay_manager
+
+                    await voiceplay_manager.handle_stream_frames(update)
 
             except AssistantErr as err:
                 LOGGER(__name__).warning(
