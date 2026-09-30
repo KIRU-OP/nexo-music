@@ -67,6 +67,67 @@ WORKER_FALLBACK_API_RETRY_DELAY_MS = min(
     max(0, int_env("WORKER_FALLBACK_API_RETRY_DELAY_MS", 1000)),
 )
 
+# --- Resilience settings -----------------------------------------------------
+# Circuit breaker: after N consecutive worker network/HTTP failures, skip the
+# worker for a while so users are not stuck waiting 3 x 25s on every song.
+WORKER_BREAKER_THRESHOLD = max(1, int_env("WORKER_BREAKER_THRESHOLD", 4))
+WORKER_BREAKER_COOLDOWN_SEC = max(5, int_env("WORKER_BREAKER_COOLDOWN_SEC", 60))
+# Negative cache: a video that failed on every source is not retried immediately.
+FAILED_MEDIA_COOLDOWN_SEC = max(0, int_env("FAILED_MEDIA_COOLDOWN_SEC", 90))
+# Optional cookies file for the yt-dlp direct fallback (Netscape format).
+YT_COOKIES_FILE = os.getenv("YT_COOKIES_FILE", "").strip()
+
+_worker_breaker = {"fails": 0, "open_until": 0.0}
+_failed_media_until: dict = {}
+
+
+def worker_breaker_open() -> bool:
+    return time.monotonic() < _worker_breaker["open_until"]
+
+
+def worker_breaker_record(ok: bool) -> None:
+    if ok:
+        _worker_breaker["fails"] = 0
+        return
+    _worker_breaker["fails"] += 1
+    if _worker_breaker["fails"] >= WORKER_BREAKER_THRESHOLD:
+        _worker_breaker["fails"] = 0
+        _worker_breaker["open_until"] = time.monotonic() + WORKER_BREAKER_COOLDOWN_SEC
+        logger.warning(
+            "Worker circuit opened | skipping worker for %ss after repeated failures",
+            WORKER_BREAKER_COOLDOWN_SEC,
+        )
+
+
+def media_in_cooldown(vid_id: str, media_type: str) -> bool:
+    expiry = _failed_media_until.get((vid_id, media_type))
+    if expiry is None:
+        return False
+    if time.monotonic() >= expiry:
+        _failed_media_until.pop((vid_id, media_type), None)
+        return False
+    return True
+
+
+def media_mark_failed(vid_id: str, media_type: str) -> None:
+    if not FAILED_MEDIA_COOLDOWN_SEC:
+        return
+    if len(_failed_media_until) > 500:
+        now = time.monotonic()
+        for key in [k for k, v in _failed_media_until.items() if v <= now]:
+            _failed_media_until.pop(key, None)
+    _failed_media_until[(vid_id, media_type)] = time.monotonic() + FAILED_MEDIA_COOLDOWN_SEC
+
+
+def redact_secrets(text) -> str:
+    """Remove API keys from anything that is about to be logged (URLs in exceptions etc.)."""
+    text = str(text)
+    for secret in (WORKER_FALLBACK_API_KEY, YT_API_KEY):
+        if secret:
+            text = text.replace(secret, "***")
+    return text
+
+
 def build_yt_dlp_args(args: list[str]) -> list[str]:
     return list(args)
 
@@ -1005,6 +1066,8 @@ class YouTubeAPI:
                 "WORKER FALLBACK": "worker fallback",
                 "XBIT FALLBACK": "xBit fallback",
                 "WORKER PRIMARY + XBIT FALLBACK": "worker primary + xBit fallback",
+                "YTDLP DIRECT": "yt-dlp direct",
+                "ALL SOURCES": "all sources",
             }
             pretty_media = {"audio": "audio", "video": "video"}.get(media_type, media_type)
             pretty_state = "ok" if ok else "failed"
@@ -1091,6 +1154,7 @@ class YouTubeAPI:
 
                 response.raise_for_status()
                 data = response.json()
+                worker_breaker_record(True)
 
                 if not data.get("success"):
                     logger.error(
@@ -1126,17 +1190,80 @@ class YouTubeAPI:
                     media_format,
                     vid_id,
                     log_title,
-                    str(e),
+                    redact_secrets(e),
                 )
+                worker_breaker_record(False)
                 return None
             finally:
                 if session:
                     session.close()
 
         async def get_worker_fallback_links(vid_id, media_format):
+            if worker_breaker_open():
+                logger.info(
+                    "Worker circuit open, skipping worker | format=%s | video_id=%s",
+                    media_format,
+                    vid_id,
+                )
+                return None
             return await loop.run_in_executor(
                 None, fetch_worker_fallback_links_sync, vid_id, media_format
             )
+
+        def ytdlp_direct_extract_sync(vid_id, media_type):
+            if media_type == "audio":
+                fmt = "bestaudio[ext=m4a]/bestaudio/best"
+            else:
+                fmt = "best[ext=mp4][height<=720]/best[height<=720]/best"
+            opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "noplaylist": True,
+                "format": fmt,
+                "socket_timeout": 20,
+                "retries": 2,
+                "geo_bypass": True,
+            }
+            if YT_COOKIES_FILE and os.path.isfile(YT_COOKIES_FILE):
+                opts["cookiefile"] = YT_COOKIES_FILE
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(
+                    f"https://www.youtube.com/watch?v={vid_id}", download=False
+                )
+            return info.get("url"), info.get("http_headers")
+
+        async def ytdlp_direct_fallback(vid_id, media_type, filepath):
+            """Last-resort source: resolve the stream URL with yt-dlp directly."""
+            try:
+                url, dl_headers = await loop.run_in_executor(
+                    None, ytdlp_direct_extract_sync, vid_id, media_type
+                )
+            except Exception as e:
+                logger.error(
+                    "yt-dlp direct fallback failed | media=%s | video_id=%s | title=%s | reason=%s",
+                    media_type,
+                    vid_id,
+                    log_title,
+                    redact_secrets(e)[:300],
+                )
+                return None
+            if not url:
+                logger.error(
+                    "yt-dlp direct fallback failed | media=%s | video_id=%s | title=%s | reason=no direct url",
+                    media_type,
+                    vid_id,
+                    log_title,
+                )
+                return None
+            if stream and await validate_stream_source(url):
+                mark_source(vid_id, media_type, "YTDLP DIRECT")
+                schedule_background_cache(url, filepath, dl_headers)
+                return url, False
+            result = await download_from_source(url, filepath, dl_headers)
+            if result:
+                mark_source(vid_id, media_type, "YTDLP DIRECT")
+                return result, True
+            return None
 
         async def audio_dl(vid_id):
             filepath = os.path.join("downloads", f"{vid_id}.mp3")
@@ -1152,6 +1279,13 @@ class YouTubeAPI:
                 cached = await wait_for_background_cache(filepath)
                 if cached:
                     return cached, True
+
+            if media_in_cooldown(vid_id, "audio"):
+                logger.info(
+                    "Skipping recently failed media | media=audio | video_id=%s",
+                    vid_id,
+                )
+                return None, True
 
             headers = {
                 "x-api-key": f"{YT_API_KEY}",
@@ -1217,9 +1351,16 @@ class YouTubeAPI:
                     mark_source(vid_id, "audio", "XBIT FALLBACK")
                     return result, True
 
-            mark_source(vid_id, "audio", "WORKER PRIMARY + XBIT FALLBACK", ok=False)
+            direct_result = await ytdlp_direct_fallback(
+                vid_id, "audio", os.path.join("downloads", f"{vid_id}.mp3")
+            )
+            if direct_result:
+                return direct_result
+
+            media_mark_failed(vid_id, "audio")
+            mark_source(vid_id, "audio", "ALL SOURCES", ok=False)
             logger.error(
-                "YouTube source failed | sources=worker_primary,xbit_fallback | media=audio | video_id=%s | title=%s",
+                "YouTube source failed | sources=worker_primary,xbit_fallback,ytdlp_direct | media=audio | video_id=%s | title=%s",
                 vid_id,
                 log_title,
             )
@@ -1240,6 +1381,13 @@ class YouTubeAPI:
                 cached = await wait_for_background_cache(filepath)
                 if cached:
                     return cached, True
+
+            if media_in_cooldown(vid_id, "video"):
+                logger.info(
+                    "Skipping recently failed media | media=video | video_id=%s",
+                    vid_id,
+                )
+                return None, True
 
             headers = {
                 "x-api-key": f"{YT_API_KEY}",
@@ -1305,9 +1453,16 @@ class YouTubeAPI:
                     mark_source(vid_id, "video", "XBIT FALLBACK")
                     return result, True
 
-            mark_source(vid_id, "video", "WORKER PRIMARY + XBIT FALLBACK", ok=False)
+            direct_result = await ytdlp_direct_fallback(
+                vid_id, "video", os.path.join("downloads", f"{vid_id}.mp4")
+            )
+            if direct_result:
+                return direct_result
+
+            media_mark_failed(vid_id, "video")
+            mark_source(vid_id, "video", "ALL SOURCES", ok=False)
             logger.error(
-                "YouTube source failed | sources=worker_primary,xbit_fallback | media=video | video_id=%s | title=%s",
+                "YouTube source failed | sources=worker_primary,xbit_fallback,ytdlp_direct | media=video | video_id=%s | title=%s",
                 vid_id,
                 log_title,
             )
