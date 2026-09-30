@@ -1404,6 +1404,7 @@ class Call:
                     return await app.send_message(original_chat_id, text=_["call_6"])
                 self._schedule_playback_watchdog(client, chat_id)
 
+                await sync_autoplay_ui(chat_id)
                 button = stream_markup(_, chat_id)
                 schedule_stream_card(
                     chat_id=chat_id,
@@ -1479,6 +1480,7 @@ class Call:
                         return await app.send_message(original_chat_id, text=_["call_6"])
                 self._schedule_playback_watchdog(client, chat_id)
 
+                await sync_autoplay_ui(chat_id)
                 button = stream_markup(_, chat_id)
                 await mystic.delete()
                 schedule_youtube_precache_for_chat(chat_id)
@@ -1514,6 +1516,7 @@ class Call:
                     return await app.send_message(original_chat_id, text=_["call_6"])
                 self._schedule_playback_watchdog(client, chat_id)
 
+                await sync_autoplay_ui(chat_id)
                 button = stream_markup(_, chat_id)
                 run = await app.send_photo(
                     chat_id=original_chat_id,
@@ -1535,6 +1538,7 @@ class Call:
                 self._schedule_playback_watchdog(client, chat_id)
 
                 if videoid == "telegram":
+                    await sync_autoplay_ui(chat_id)
                     button = stream_markup(_, chat_id)
                     run = await app.send_photo(
                         chat_id=original_chat_id,
@@ -1553,6 +1557,7 @@ class Call:
                     db[chat_id][0]["markup"] = "tg"
 
                 elif videoid == "soundcloud":
+                    await sync_autoplay_ui(chat_id)
                     button = stream_markup(_, chat_id)
                     run = await app.send_photo(
                         chat_id=original_chat_id,
@@ -1567,6 +1572,7 @@ class Call:
                     db[chat_id][0]["markup"] = "tg"
 
                 else:
+                    await sync_autoplay_ui(chat_id)
                     button = stream_markup(_, chat_id)
                     schedule_stream_card(
                         chat_id=chat_id,
