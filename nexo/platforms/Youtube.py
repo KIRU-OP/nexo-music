@@ -494,71 +494,60 @@ class YouTubeAPI:
         videoid: str,
         title: str = "",
         max_duration: Union[int, None] = None,
-        exclude_ids: Union[set, list, None] = None,
     ) -> Union[dict, None]:
-        exclude = {str(x) for x in (exclude_ids or []) if x}
-        if videoid:
-            exclude.add(str(videoid))
+        candidates = []
 
-        async def pick(candidates):
-            for candidate in candidates:
-                candidate_id = candidate.get("id")
-                if not candidate_id or str(candidate_id) in exclude:
-                    continue
-                formatted = self._format_autoplay_candidate(
-                    candidate, videoid, max_duration
-                )
-                if formatted:
-                    return formatted
-                try:
-                    (
-                        resolved_title,
-                        duration_min,
-                        duration_sec,
-                        thumbnail,
-                        resolved_videoid,
-                    ) = await self.details(candidate_id, videoid=True)
-                except Exception:
-                    continue
-                if (
-                    not resolved_videoid
-                    or str(resolved_videoid) in exclude
-                    or not duration_sec
-                    or duration_sec > DURATION_LIMIT
-                    or (max_duration and duration_sec > max_duration)
-                ):
-                    continue
-                return {
-                    "title": resolved_title,
-                    "duration_min": duration_min,
-                    "duration_sec": duration_sec,
-                    "thumb": thumbnail,
-                    "vidid": resolved_videoid,
-                    "link": f"{self.base}{resolved_videoid}",
-                }
-            return None
-
-        # 1) YouTube related recommendations
         if videoid and Recommendations is not None:
             try:
                 candidates = await Recommendations.get(videoid, timeout=5) or []
-                result = await pick(candidates)
-                if result:
-                    return result
             except Exception as err:
                 logger.warning("Autoplay recommendations failed for %s: %s", videoid, err)
 
-        # 2) fallback: title search (recommendations khaali ya sab already played the)
-        query = self._clean_autoplay_query(title)
-        if not query:
-            return None
-        try:
-            search = VideosSearch(query, limit=20)
-            candidates = (await search.next()).get("result", [])
-        except Exception as err:
-            logger.warning("Autoplay fallback search failed for %s: %s", query, err)
-            return None
-        return await pick(candidates)
+        if not candidates:
+            query = self._clean_autoplay_query(title)
+            if not query:
+                return None
+            try:
+                search = VideosSearch(query, limit=12)
+                candidates = (await search.next()).get("result", [])
+            except Exception as err:
+                logger.warning("Autoplay fallback search failed for %s: %s", query, err)
+                return None
+
+        for candidate in candidates:
+            formatted = self._format_autoplay_candidate(candidate, videoid, max_duration)
+            if formatted:
+                return formatted
+            candidate_id = candidate.get("id")
+            if not candidate_id or candidate_id == videoid:
+                continue
+            try:
+                (
+                    resolved_title,
+                    duration_min,
+                    duration_sec,
+                    thumbnail,
+                    resolved_videoid,
+                ) = await self.details(candidate_id, videoid=True)
+            except Exception:
+                continue
+            if (
+                not resolved_videoid
+                or resolved_videoid == videoid
+                or not duration_sec
+                or duration_sec > DURATION_LIMIT
+                or (max_duration and duration_sec > max_duration)
+            ):
+                continue
+            return {
+                "title": resolved_title,
+                "duration_min": duration_min,
+                "duration_sec": duration_sec,
+                "thumb": thumbnail,
+                "vidid": resolved_videoid,
+                "link": f"{self.base}{resolved_videoid}",
+            }
+        return None
 
     async def formats(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
