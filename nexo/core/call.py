@@ -52,7 +52,7 @@ from nexo.utils.database import (
 )
 from nexo.utils.exceptions import AssistantErr
 from nexo.utils.formatters import check_duration, seconds_to_min, speed_converter
-from nexo.utils.inline.play import stream_markup
+from nexo.utils.inline.play import stream_markup, sync_autoplay_ui
 from nexo.security import build_subprocess_env
 from nexo.utils.stream.autoclear import auto_clean
 from nexo.utils.stream.autodelete import (
