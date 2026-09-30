@@ -16,16 +16,16 @@ from pytgcalls.types.raw import AudioParameters
 
 import config
 from strings import get_string
-from VIVAANXMUSIC import LOGGER, YouTube, app
-from VIVAANXMUSIC.utils.database import (
+from nexo import LOGGER, YouTube, app
+from nexo.utils.database import (
     get_lang,
     get_voiceplay,
     group_assistant,
     is_active_chat,
     set_voiceplay,
 )
-from VIVAANXMUSIC.utils.formatters import time_to_seconds
-from VIVAANXMUSIC.utils.voiceplay_text import (
+from nexo.utils.formatters import time_to_seconds
+from nexo.utils.voiceplay_text import (
     rank_transcripts,
     song_query_candidates,
     song_title_similarity,
