@@ -55,7 +55,7 @@ ASSISTANT_WAIT_INTERVAL = 0.5
 
 
 async def _available_assistants() -> list[int]:
-    from VIVAANXMUSIC.core.userbot import assistants
+    from nexo.core.userbot import assistants
 
     if assistants:
         return list(assistants)
