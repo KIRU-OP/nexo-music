@@ -28,6 +28,7 @@ BOT_COMMANDS = [
     BotCommand("autoplay", "Toggle similar-song autoplay"),
     BotCommand("autodelete", "Auto-delete player and queue notices"),
     BotCommand("vcnotify", "Toggle VC join notifications"),
+    BotCommand("voiceplay", "Control spoken song requests"),
     BotCommand("gpt", "Ask the AI assistant"),
     BotCommand("claude", "Ask Claude-style AI"),
     BotCommand("geminivision", "Analyze a replied image"),
@@ -104,7 +105,7 @@ async def init():
     )
     await idle()
     try:
-        weather_plugin = importlib.import_module("nexo.plugins.Kishu.weather")
+        weather_plugin = importlib.import_module("VIVAANXMUSIC.plugins.Kishu.weather")
         await weather_plugin.close_weather_http_client()
     except Exception:
         pass
