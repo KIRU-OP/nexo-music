@@ -29,9 +29,9 @@ from pytgcalls.types import (
 
 import config
 from strings import get_string
-from VIVAANXMUSIC import LOGGER, YouTube, app
-from VIVAANXMUSIC.misc import db
-from VIVAANXMUSIC.utils.database import (
+from nexo import LOGGER, YouTube, app
+from nexo.misc import db
+from nexo.utils.database import (
     add_active_chat,
     add_active_video_chat,
     get_autoplay,
@@ -50,19 +50,19 @@ from VIVAANXMUSIC.utils.database import (
     set_loop,
     set_vcnotify,
 )
-from VIVAANXMUSIC.utils.exceptions import AssistantErr
-from VIVAANXMUSIC.utils.formatters import check_duration, seconds_to_min, speed_converter
-from VIVAANXMUSIC.utils.inline.play import stream_markup
-from VIVAANXMUSIC.security import build_subprocess_env
-from VIVAANXMUSIC.utils.stream.autoclear import auto_clean
-from VIVAANXMUSIC.utils.stream.autodelete import (
+from nexo.utils.exceptions import AssistantErr
+from nexo.utils.formatters import check_duration, seconds_to_min, speed_converter
+from nexo.utils.inline.play import stream_markup
+from nexo.security import build_subprocess_env
+from nexo.utils.stream.autoclear import auto_clean
+from nexo.utils.stream.autodelete import (
     delete_queue_message,
     remember_player_message,
 )
-from VIVAANXMUSIC.utils.stream.cards import schedule_stream_card
-from VIVAANXMUSIC.utils.stream.precache import schedule_youtube_precache_for_chat
-from VIVAANXMUSIC.utils.errors import capture_internal_err, send_large_error
-from VIVAANXMUSIC.utils.voiceplay_policy import should_prompt_after_track
+from nexo.utils.stream.cards import schedule_stream_card
+from nexo.utils.stream.precache import schedule_youtube_precache_for_chat
+from nexo.utils.errors import capture_internal_err, send_large_error
+from nexo.utils.voiceplay_policy import should_prompt_after_track
 
 autoend = {}
 counter = {}
