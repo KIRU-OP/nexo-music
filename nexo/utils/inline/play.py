@@ -30,6 +30,16 @@ LAST_UPDATE_TIME = {}
 AUTOPLAY_UI = {}
 
 
+# ------------------------------------------------------------ helpers
+def _to_bool(v) -> bool:
+    """DB kuch bhi return kare (dict / str / int / bool), sahi bool banao."""
+    if isinstance(v, dict):
+        v = v.get("enabled", v.get("autoplay", False))
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "on", "yes", "enabled")
+    return bool(v)
+
+
 # ------------------------------------------------------------ autoplay UI
 def set_autoplay_ui(chat_id, state: bool):
     AUTOPLAY_UI[chat_id] = bool(state)
@@ -39,7 +49,7 @@ async def sync_autoplay_ui(chat_id):
     """DB se asli state padh ke button cache update karo.
     call.py mein stream_markup() se pehle await karna."""
     try:
-        state = bool(await get_autoplay(chat_id))
+        state = _to_bool(await get_autoplay(chat_id))
         set_autoplay_ui(chat_id, state)
         return state
     except Exception as e:
@@ -239,16 +249,21 @@ def _register_autoplay_callback():
             )
 
         try:
-            new_state = not bool(await get_autoplay(chat_id))
+            new_state = not _to_bool(await get_autoplay(chat_id))
+
+            # Pehle Voice Play band karo, phir autoplay ON likho
+            # (warna call.py autoplay ko wapas OFF kar deta hai)
+            if new_state and get_voiceplay and set_voiceplay:
+                vp = await get_voiceplay(chat_id)
+                if _to_bool(vp):
+                    await set_voiceplay(chat_id, False)
+
             await set_autoplay(chat_id, new_state)
             set_autoplay_ui(chat_id, new_state)
 
-            # Autoplay ON karte waqt Voice Play OFF, warna call.py autoplay
-            # ko wapas OFF kar deta hai
-            if new_state and get_voiceplay and set_voiceplay:
-                vp = await get_voiceplay(chat_id)
-                if vp and vp.get("enabled"):
-                    await set_voiceplay(chat_id, False)
+            LOGGER.info(
+                "Autoplay toggled | chat_id=%s | new_state=%s", chat_id, new_state
+            )
         except Exception as e:
             LOGGER.exception("Autoplay toggle failed | chat_id=%s | %s", chat_id, e)
             return await query.answer(
@@ -271,6 +286,10 @@ def _register_autoplay_callback():
             await query.message.edit_reply_markup(InlineKeyboardMarkup(rows))
         except Exception as e:
             LOGGER.warning("Autoplay keyboard edit failed: %s", e)
+
+        # Dusre handlers ko dobara toggle karne se roko.
+        # NOTE: try/except ke bahar hi rakhna, StopPropagation ek Exception hai.
+        query.stop_propagation()
 
 
 _register_autoplay_callback()
