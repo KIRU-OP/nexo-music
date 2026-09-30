@@ -14,18 +14,18 @@ from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from youtubesearchpython.__future__ import VideosSearch
+from youtubesearchpython.future import VideosSearch
 try:
-    from youtubesearchpython.__future__ import Recommendations
+    from youtubesearchpython.future.extras import Recommendations
 except ImportError:
     Recommendations = None
 import base64
-from nexo import LOGGER
-from nexo.utils.database import is_on_off
-from nexo.utils.formatters import time_to_seconds
-from nexo.utils.url_guard import is_safe_media_url
-from nexo.security import build_subprocess_env
-from nexo.utils.stream.source_status import set_youtube_source_status
+from VIVAANXMUSIC import LOGGER
+from VIVAANXMUSIC.utils.database import is_on_off
+from VIVAANXMUSIC.utils.formatters import time_to_seconds
+from VIVAANXMUSIC.utils.url_guard import is_safe_media_url
+from VIVAANXMUSIC.security import build_subprocess_env
+from VIVAANXMUSIC.utils.stream.source_status import set_youtube_source_status
 from config import DURATION_LIMIT, YT_API_KEY, YTPROXY_URL, autoclean
 
 logger = LOGGER(__name__)
@@ -494,71 +494,60 @@ class YouTubeAPI:
         videoid: str,
         title: str = "",
         max_duration: Union[int, None] = None,
-        exclude_ids: Union[set, list, None] = None,
     ) -> Union[dict, None]:
-        exclude = {str(x) for x in (exclude_ids or []) if x}
-        if videoid:
-            exclude.add(str(videoid))
+        candidates = []
 
-        async def pick(candidates):
-            for candidate in candidates:
-                candidate_id = candidate.get("id")
-                if not candidate_id or str(candidate_id) in exclude:
-                    continue
-                formatted = self._format_autoplay_candidate(
-                    candidate, videoid, max_duration
-                )
-                if formatted:
-                    return formatted
-                try:
-                    (
-                        resolved_title,
-                        duration_min,
-                        duration_sec,
-                        thumbnail,
-                        resolved_videoid,
-                    ) = await self.details(candidate_id, videoid=True)
-                except Exception:
-                    continue
-                if (
-                    not resolved_videoid
-                    or str(resolved_videoid) in exclude
-                    or not duration_sec
-                    or duration_sec > DURATION_LIMIT
-                    or (max_duration and duration_sec > max_duration)
-                ):
-                    continue
-                return {
-                    "title": resolved_title,
-                    "duration_min": duration_min,
-                    "duration_sec": duration_sec,
-                    "thumb": thumbnail,
-                    "vidid": resolved_videoid,
-                    "link": f"{self.base}{resolved_videoid}",
-                }
-            return None
-
-        # 1) YouTube related recommendations
         if videoid and Recommendations is not None:
             try:
                 candidates = await Recommendations.get(videoid, timeout=5) or []
-                result = await pick(candidates)
-                if result:
-                    return result
             except Exception as err:
                 logger.warning("Autoplay recommendations failed for %s: %s", videoid, err)
 
-        # 2) fallback: title search (recommendations khaali ya sab already played the)
-        query = self._clean_autoplay_query(title)
-        if not query:
-            return None
-        try:
-            search = VideosSearch(query, limit=20)
-            candidates = (await search.next()).get("result", [])
-        except Exception as err:
-            logger.warning("Autoplay fallback search failed for %s: %s", query, err)
-            return None
-        return await pick(candidates)
+        if not candidates:
+            query = self._clean_autoplay_query(title)
+            if not query:
+                return None
+            try:
+                search = VideosSearch(query, limit=12)
+                candidates = (await search.next()).get("result", [])
+            except Exception as err:
+                logger.warning("Autoplay fallback search failed for %s: %s", query, err)
+                return None
+
+        for candidate in candidates:
+            formatted = self._format_autoplay_candidate(candidate, videoid, max_duration)
+            if formatted:
+                return formatted
+            candidate_id = candidate.get("id")
+            if not candidate_id or candidate_id == videoid:
+                continue
+            try:
+                (
+                    resolved_title,
+                    duration_min,
+                    duration_sec,
+                    thumbnail,
+                    resolved_videoid,
+                ) = await self.details(candidate_id, videoid=True)
+            except Exception:
+                continue
+            if (
+                not resolved_videoid
+                or resolved_videoid == videoid
+                or not duration_sec
+                or duration_sec > DURATION_LIMIT
+                or (max_duration and duration_sec > max_duration)
+            ):
+                continue
+            return {
+                "title": resolved_title,
+                "duration_min": duration_min,
+                "duration_sec": duration_sec,
+                "thumb": thumbnail,
+                "vidid": resolved_videoid,
+                "link": f"{self.base}{resolved_videoid}",
+            }
+        return None
 
     async def formats(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
@@ -656,7 +645,7 @@ class YouTubeAPI:
         songvideo: Union[bool, str] = None,
         format_id: Union[bool, str] = None,
         title: Union[bool, str] = None,
-        stream: Union[bool, str] = True,
+        stream: Union[bool, str] = None,
     ) -> str:
         if videoid:
             vid_id = link
@@ -695,7 +684,7 @@ class YouTubeAPI:
                 if isinstance(path, str) and path
             }
             try:
-                from nexo.misc import db
+                from VIVAANXMUSIC.misc import db
 
                 for queue in (db or {}).values():
                     for item in queue or []:
