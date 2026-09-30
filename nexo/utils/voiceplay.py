@@ -30,7 +30,7 @@ from nexo.utils.voiceplay_text import (
     song_query_candidates,
     song_title_similarity,
 )
-from VIVAANXMUSIC.utils.voiceplay_stt import GroqKeyPool, parse_api_keys
+from nexo.utils.voiceplay_stt import GroqKeyPool, parse_api_keys
 
 
 def _env_int(name: str, default: int) -> int:
