@@ -9,7 +9,7 @@ import httpx
 
 
 MODULE_PATH = (
-    Path(__file__).resolve().parents[1] / "VIVAANXMUSIC" / "utils" / "voiceplay_stt.py"
+    Path(__file__).resolve().parents[1] / "nexo" / "utils" / "voiceplay_stt.py"
 )
 SPEC = importlib.util.spec_from_file_location("voiceplay_stt", MODULE_PATH)
 voiceplay_stt = importlib.util.module_from_spec(SPEC)
