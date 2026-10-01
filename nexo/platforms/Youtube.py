@@ -41,7 +41,7 @@ logger = LOGGER(__name__)
 # Worker API (kept configurable through env for production overrides)
 WORKER_FALLBACK_API_URL = os.getenv(
     "WORKER_FALLBACK_API_URL",
-    "https://youtubenewapi.skybotsdeveloper.workers.dev",
+    "",
 ).strip()
 WORKER_FALLBACK_API_KEY = os.getenv("WORKER_FALLBACK_API_KEY", "itsmesid").strip()
 YTPROXY = (YTPROXY_URL or "").strip().rstrip("/")
