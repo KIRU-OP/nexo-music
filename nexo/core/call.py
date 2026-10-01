@@ -62,6 +62,12 @@ from nexo.utils.stream.autodelete import (
 from nexo.utils.stream.cards import schedule_stream_card
 from nexo.utils.stream.precache import schedule_youtube_precache_for_chat
 from nexo.utils.errors import capture_internal_err, send_large_error
+from nexo.utils.autoplay_context_db import (
+    clear_context as clear_autoplay_context,
+    get_context as get_autoplay_context,
+    set_context_kind as set_autoplay_context_kind,
+)
+from nexo.utils.played_db import add_played, clear_played, is_played
 from nexo.utils.voiceplay_policy import should_prompt_after_track
 
 autoend = {}
@@ -160,8 +166,34 @@ def is_too_many_open_files(err: Exception) -> bool:
     return getattr(err, "errno", None) == 24 or "too many open files" in str(err).lower()
 
 
+async def _record_played(chat_id: int, track: dict) -> None:
+    """Jo gaana start hua use history mein daalo (repeat roakne ke liye)."""
+    try:
+        vid = str(track.get("vidid") or "")
+        if not vid or vid in {"telegram", "soundcloud"}:
+            return
+        if str(track.get("file") or "").startswith("live_"):
+            return
+        ctx = await get_autoplay_context(chat_id)
+        await add_played(
+            chat_id,
+            vid,
+            track.get("title"),
+            track.get("seconds") or track.get("dur"),
+            (ctx or {}).get("core", ""),
+        )
+    except Exception as err:
+        LOGGER(__name__).warning("record_played failed | chat_id=%s | %s", chat_id, err)
+
+
 async def _clear_(chat_id: int) -> None:
     _cancel_playback_watchdog(chat_id)
+    try:
+        # Session khatam: history aur artist/mood context dono saaf
+        await clear_played(chat_id)
+        await clear_autoplay_context(chat_id)
+    except Exception as err:
+        LOGGER(__name__).warning("autoplay state clear failed | %s", err)
     _cancel_empty_vc_watchdog(chat_id)
     playback_recovery_attempts.pop(chat_id, None)
     popped = db.pop(chat_id, None)
@@ -1142,12 +1174,42 @@ class Call:
         if seed_seconds > 0:
             max_duration = min(max(seed_seconds * 3, 240), 900)
 
+        ctx = None
         try:
-            recommendation = await YouTube.autoplay(
-                videoid,
-                finished_track.get("title", ""),
-                max_duration=max_duration,
-            )
+            ctx = await get_autoplay_context(chat_id)
+        except Exception as err:
+            LOGGER(__name__).warning("autoplay context read failed | %s", err)
+        core = (ctx or {}).get("core", "")
+
+        async def _played(vid, title, dur):
+            return await is_played(chat_id, vid, title, dur, core)
+
+        try:
+            recommendation = None
+            ctx_kind = (ctx or {}).get("kind")
+            if ctx and ctx_kind in ("pending", "artist", "topic"):
+                # User ne artist / mood search kiya tha: usi ke andar chalo
+                recommendation, new_kind = await YouTube.autoplay_context(
+                    ctx, videoid, max_duration, _played
+                )
+                if new_kind != ctx_kind:
+                    await set_autoplay_context_kind(chat_id, new_kind)
+                    ctx_kind = new_kind
+                if not recommendation and ctx_kind in ("artist", "topic"):
+                    LOGGER(__name__).info(
+                        "Autoplay: context songs khatam | chat_id=%s | core=%r",
+                        chat_id,
+                        core,
+                    )
+                    return False
+            if not recommendation:
+                # Single song / context nahi: normal related autoplay (repeat-free)
+                recommendation = await YouTube.autoplay(
+                    videoid,
+                    finished_track.get("title", ""),
+                    max_duration=max_duration,
+                    is_played=_played,
+                )
         except Exception as err:
             LOGGER(__name__).warning(
                 "Autoplay lookup failed for chat %s on %s: %s",
@@ -1365,6 +1427,7 @@ class Call:
             videoid = current.get("vidid")
             db[chat_id][0]["played"] = 0
             await delete_queue_message(chat_id, current)
+            await _record_played(chat_id, current)
 
             exis = current.get("old_dur")
             if exis:
