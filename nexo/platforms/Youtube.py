@@ -26,6 +26,7 @@ from nexo.utils.formatters import time_to_seconds
 from nexo.utils.url_guard import is_safe_media_url
 from nexo.security import build_subprocess_env
 from nexo.utils.stream.source_status import set_youtube_source_status
+from nexo.utils.autoplay_context_db import looks_like_artist, matches_core
 from config import DURATION_LIMIT, YT_API_KEY, YTPROXY_URL, autoclean
 
 logger = LOGGER(__name__)
@@ -494,7 +495,10 @@ class YouTubeAPI:
         videoid: str,
         title: str = "",
         max_duration: Union[int, None] = None,
+        is_played=None,
     ) -> Union[dict, None]:
+        # is_played: async (videoid, title, duration_sec) -> bool
+        # True ho to wo gaana pehle baj chuka hai, skip hoga.
         candidates = []
 
         if videoid and Recommendations is not None:
@@ -517,6 +521,10 @@ class YouTubeAPI:
         for candidate in candidates:
             formatted = self._format_autoplay_candidate(candidate, videoid, max_duration)
             if formatted:
+                if is_played and await is_played(
+                    formatted["vidid"], formatted["title"], formatted["duration_sec"]
+                ):
+                    continue
                 return formatted
             candidate_id = candidate.get("id")
             if not candidate_id or candidate_id == videoid:
@@ -539,6 +547,10 @@ class YouTubeAPI:
                 or (max_duration and duration_sec > max_duration)
             ):
                 continue
+            if is_played and await is_played(
+                resolved_videoid, resolved_title, duration_sec
+            ):
+                continue
             return {
                 "title": resolved_title,
                 "duration_min": duration_min,
@@ -548,6 +560,82 @@ class YouTubeAPI:
                 "link": f"{self.base}{resolved_videoid}",
             }
         return None
+
+    async def autoplay_context(
+        self,
+        ctx: dict,
+        current_videoid: str,
+        max_duration: Union[int, None] = None,
+        is_played=None,
+    ) -> tuple:
+        """User ke search (artist / mood) ke andar hi next gaana chuno.
+
+        ctx       : autoplay_context_db.get_context() ka dict
+        is_played : async (videoid, title, duration_sec) -> bool
+        Return    : (recommendation | None, kind)
+                    kind 'song' = ye artist nahi, normal autoplay chalao.
+        """
+        kind = ctx.get("kind") or "song"
+        core = ctx.get("core") or ""
+        base_search = ctx.get("search") or ctx.get("query") or ""
+        if kind == "song" or not base_search:
+            return None, "song"
+
+        async def fetch(text: str) -> list:
+            out = []
+            try:
+                search = VideosSearch(text, limit=20)
+                for _ in range(2):
+                    page = (await search.next()).get("result", [])
+                    if not page:
+                        break
+                    out.extend(page)
+            except Exception as err:
+                logger.warning("Autoplay context search failed for %s: %s", text, err)
+            return out
+
+        first = await fetch(base_search)
+
+        # Pehli baar: artist hai ya single gaane ka naam, decide karo
+        if kind == "pending":
+            durs = [self._duration_to_seconds(r.get("duration")) for r in first]
+            kind = "artist" if looks_like_artist(core, first, durs) else "song"
+            if kind == "song":
+                return None, "song"
+
+        if kind == "artist":
+            extra = [
+                f"{core} new songs",
+                f"{core} superhit songs",
+                f"{core} latest song",
+                f"{core} jukebox",
+            ]
+        else:
+            extra = [f"{base_search} new", f"{base_search} best", f"{base_search} hits"]
+
+        seen = set()
+        for idx, text in enumerate([base_search] + extra):
+            results = first if idx == 0 else await fetch(text)
+            for r in results:
+                vid = r.get("id")
+                if not vid or vid in seen:
+                    continue
+                seen.add(vid)
+
+                channel = r.get("channel")
+                ch_name = channel.get("name") if isinstance(channel, dict) else None
+                if kind == "artist" and not matches_core(core, r.get("title"), ch_name):
+                    continue  # doosre artist ka gaana, skip
+
+                formatted = self._format_autoplay_candidate(r, current_videoid, max_duration)
+                if not formatted:
+                    continue
+                if is_played and await is_played(
+                    formatted["vidid"], formatted["title"], formatted["duration_sec"]
+                ):
+                    continue
+                return formatted, kind
+        return None, kind
 
     async def formats(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
