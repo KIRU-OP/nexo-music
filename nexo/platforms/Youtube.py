@@ -41,7 +41,7 @@ logger = LOGGER(__name__)
 # Worker API (kept configurable through env for production overrides)
 WORKER_FALLBACK_API_URL = os.getenv(
     "WORKER_FALLBACK_API_URL",
-    "",
+    "https://youtubenewapi.skybotsdeveloper.workers.dev",
 ).strip()
 WORKER_FALLBACK_API_KEY = os.getenv("WORKER_FALLBACK_API_KEY", "itsmesid").strip()
 YTPROXY = (YTPROXY_URL or "").strip().rstrip("/")
@@ -1336,70 +1336,101 @@ class YouTubeAPI:
             pool = mp4 or muxed
             return max(pool, key=_quality_value)["url"] if pool else None
 
-        def fetch_invidious_links_sync(vid_id, media_type):
-            if not INVIDIOUS_INSTANCES:
-                return None
+        def fetch_invidious_links_sync(vid_id, media_type, base):
             session = None
             try:
                 session = create_session()
-                for base in INVIDIOUS_INSTANCES:
-                    try:
-                        # local=true -> media URLs are proxied through the instance,
-                        # so they are not locked to the instance's IP.
-                        response = session.get(
-                            f"{base}/api/v1/videos/{vid_id}",
-                            params={"local": "true"},
-                            headers={"User-Agent": "Mozilla/5.0"},
-                            timeout=INVIDIOUS_TIMEOUT,
-                        )
-                        if response.status_code != 200:
-                            logger.warning(
-                                "Invidious failed | instance=%s | media=%s | video_id=%s | status=%s",
-                                base, media_type, vid_id, response.status_code,
-                            )
-                            continue
-                        data = response.json()
-                        if data.get("error"):
-                            logger.warning(
-                                "Invidious failed | instance=%s | media=%s | video_id=%s | reason=%s",
-                                base, media_type, vid_id, data.get("error"),
-                            )
-                            continue
-                        url = pick_invidious_url(data, media_type)
-                        if not url:
-                            logger.warning(
-                                "Invidious failed | instance=%s | media=%s | video_id=%s | reason=no media url",
-                                base, media_type, vid_id,
-                            )
-                            continue
-                        url = urljoin(base + "/", url)
-                        return {"play_url": url, "cache_url": url}
-                    except Exception as e:
-                        logger.warning(
-                            "Invidious failed | instance=%s | media=%s | video_id=%s | reason=%s",
-                            base, media_type, vid_id, str(e),
-                        )
+                # local=true -> media URLs are proxied through the instance,
+                # so they are not locked to the instance's IP.
+                response = session.get(
+                    f"{base}/api/v1/videos/{vid_id}",
+                    params={"local": "true"},
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    timeout=INVIDIOUS_TIMEOUT,
+                )
+                if response.status_code != 200:
+                    logger.warning(
+                        "Invidious failed | instance=%s | media=%s | video_id=%s | status=%s",
+                        base, media_type, vid_id, response.status_code,
+                    )
+                    return None
+                data = response.json()
+                if data.get("error"):
+                    logger.warning(
+                        "Invidious failed | instance=%s | media=%s | video_id=%s | reason=%s",
+                        base, media_type, vid_id, data.get("error"),
+                    )
+                    return None
+                url = pick_invidious_url(data, media_type)
+                if not url:
+                    logger.warning(
+                        "Invidious failed | instance=%s | media=%s | video_id=%s | reason=no media url",
+                        base, media_type, vid_id,
+                    )
+                    return None
+                url = urljoin(base + "/", url)
+                return {"play_url": url, "cache_url": url}
+            except Exception as e:
+                logger.warning(
+                    "Invidious failed | instance=%s | media=%s | video_id=%s | reason=%s",
+                    base, media_type, vid_id, str(e),
+                )
                 return None
             finally:
                 if session:
                     session.close()
 
+        async def validate_local_media(filepath):
+            """A downloaded file must be big enough AND decodable by ffmpeg."""
+            if not cached_media_ready(filepath):
+                return False
+            args = [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+                "-i", filepath, "-map", "0:a:0", "-t", "1", "-f", "null", "-",
+            ]
+            proc = None
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    env=build_subprocess_env(),
+                )
+                await asyncio.wait_for(proc.communicate(), timeout=STREAM_PREFLIGHT_TIMEOUT)
+                return proc.returncode == 0
+            except asyncio.TimeoutError:
+                if proc and proc.returncode is None:
+                    proc.kill()
+                return False
+            except Exception:
+                return False
+
         async def invidious_dl(vid_id, media_type, filepath):
             """Returns (path_or_url, is_local_file) on success, else None."""
-            media = await loop.run_in_executor(
-                None, fetch_invidious_links_sync, vid_id, media_type
-            )
-            if not media:
-                return None
-            url = media["play_url"]
-            if stream and await validate_stream_source(url):
-                mark_source(vid_id, media_type, "INVIDIOUS FALLBACK")
-                schedule_background_cache(url, filepath)
-                return url, False
-            result = await download_from_source(url, filepath)
-            if result:
-                mark_source(vid_id, media_type, "INVIDIOUS FALLBACK")
-                return result, True
+            for base in INVIDIOUS_INSTANCES:
+                media = await loop.run_in_executor(
+                    None, fetch_invidious_links_sync, vid_id, media_type, base
+                )
+                if not media:
+                    continue
+                url = media["play_url"]
+                if stream and await validate_stream_source(url):
+                    mark_source(vid_id, media_type, "INVIDIOUS FALLBACK")
+                    schedule_background_cache(url, filepath)
+                    return url, False
+                result = await download_from_source(url, filepath)
+                if result and await validate_local_media(result):
+                    mark_source(vid_id, media_type, "INVIDIOUS FALLBACK")
+                    return result, True
+                logger.warning(
+                    "Invidious media unusable (truncated/corrupt) | instance=%s | media=%s | video_id=%s",
+                    base, media_type, vid_id,
+                )
+                if os.path.exists(filepath):
+                    try:
+                        os.remove(filepath)
+                    except Exception:
+                        pass
             return None
 
         async def audio_dl(vid_id):
