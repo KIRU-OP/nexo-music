@@ -180,7 +180,10 @@ async def _record_played(chat_id: int, track: dict) -> None:
             vid,
             track.get("title"),
             track.get("seconds") or track.get("dur"),
-            (ctx or {}).get("core", ""),
+            (ctx or {}).get("ignore") or (ctx or {}).get("core", ""),
+        )
+        LOGGER(__name__).info(
+            "Played recorded | chat_id=%s | vid=%s | title=%s", chat_id, vid, track.get("title")
         )
     except Exception as err:
         LOGGER(__name__).warning("record_played failed | chat_id=%s | %s", chat_id, err)
@@ -1179,7 +1182,7 @@ class Call:
             ctx = await get_autoplay_context(chat_id)
         except Exception as err:
             LOGGER(__name__).warning("autoplay context read failed | %s", err)
-        core = (ctx or {}).get("core", "")
+        core = (ctx or {}).get("ignore") or (ctx or {}).get("core", "")
 
         async def _played(vid, title, dur):
             return await is_played(chat_id, vid, title, dur, core)
