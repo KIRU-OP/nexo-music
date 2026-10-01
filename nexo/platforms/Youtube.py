@@ -7,7 +7,6 @@ import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Union
-from urllib.parse import urljoin
 import string
 import requests
 import yt_dlp
@@ -41,7 +40,7 @@ logger = LOGGER(__name__)
 # Worker API (kept configurable through env for production overrides)
 WORKER_FALLBACK_API_URL = os.getenv(
     "WORKER_FALLBACK_API_URL",
-    "",
+    "https://youtubenewapi.skybotsdeveloper.workers.dev",
 ).strip()
 WORKER_FALLBACK_API_KEY = os.getenv("WORKER_FALLBACK_API_KEY", "itsmesid").strip()
 YTPROXY = (YTPROXY_URL or "").strip().rstrip("/")
@@ -74,14 +73,6 @@ WORKER_FALLBACK_API_RETRY_DELAY_MS = min(
     5000,
     max(0, int_env("WORKER_FALLBACK_API_RETRY_DELAY_MS", 1000)),
 )
-
-# Invidious fallback (comma separated list of instances, tried in order)
-INVIDIOUS_INSTANCES = [
-    item.strip().rstrip("/")
-    for item in os.getenv("INVIDIOUS_INSTANCES", "https://invidious.f5.si").split(",")
-    if item.strip()
-]
-INVIDIOUS_TIMEOUT = max(3, int_env("INVIDIOUS_TIMEOUT", 20))
 
 def build_yt_dlp_args(args: list[str]) -> list[str]:
     return list(args)
@@ -1035,12 +1026,6 @@ class YouTubeAPI:
                     session.close()
 
         async def download_from_source(url, filepath, headers=None):
-            # Invidious media links are direct files that yt-dlp reports as
-            # "Unsupported URL", so fetch them with requests first.
-            if any(url.startswith(base) for base in INVIDIOUS_INSTANCES):
-                result = await download_with_requests_fallback(url, filepath, headers)
-                if result:
-                    return result
             result = await download_with_ytdlp(url, filepath, headers)
             if result:
                 return result
@@ -1174,9 +1159,7 @@ class YouTubeAPI:
                 "WORKER PRIMARY": "worker primary",
                 "WORKER FALLBACK": "worker fallback",
                 "XBIT FALLBACK": "xBit fallback",
-                "INVIDIOUS FALLBACK": "invidious fallback",
                 "WORKER PRIMARY + XBIT FALLBACK": "worker primary + xBit fallback",
-                "WORKER PRIMARY + XBIT + INVIDIOUS FALLBACK": "worker primary + xBit + invidious fallback",
             }
             pretty_media = {"audio": "audio", "video": "video"}.get(media_type, media_type)
             pretty_state = "ok" if ok else "failed"
@@ -1310,129 +1293,6 @@ class YouTubeAPI:
                 None, fetch_worker_fallback_links_sync, vid_id, media_format
             )
 
-        def _quality_value(fmt):
-            digits = re.sub(r"\D", "", str(fmt.get("qualityLabel") or ""))
-            return int(digits) if digits else 0
-
-        def _bitrate_value(fmt):
-            try:
-                return int(fmt.get("bitrate") or 0)
-            except (TypeError, ValueError):
-                return 0
-
-        def pick_invidious_url(data, media_type):
-            if media_type == "audio":
-                audio = [
-                    f for f in data.get("adaptiveFormats") or []
-                    if str(f.get("type", "")).startswith("audio/") and f.get("url")
-                ]
-                # Prefer m4a (audio/mp4): widest player/ffmpeg compatibility.
-                m4a = [f for f in audio if "audio/mp4" in str(f.get("type", ""))]
-                pool = m4a or audio
-                return max(pool, key=_bitrate_value)["url"] if pool else None
-            # video: use muxed streams (video + audio in one file)
-            muxed = [f for f in data.get("formatStreams") or [] if f.get("url")]
-            mp4 = [f for f in muxed if str(f.get("type", "")).startswith("video/mp4")]
-            pool = mp4 or muxed
-            return max(pool, key=_quality_value)["url"] if pool else None
-
-        def fetch_invidious_links_sync(vid_id, media_type, base):
-            session = None
-            try:
-                session = create_session()
-                # local=true -> media URLs are proxied through the instance,
-                # so they are not locked to the instance's IP.
-                response = session.get(
-                    f"{base}/api/v1/videos/{vid_id}",
-                    params={"local": "true"},
-                    headers={"User-Agent": "Mozilla/5.0"},
-                    timeout=INVIDIOUS_TIMEOUT,
-                )
-                if response.status_code != 200:
-                    logger.warning(
-                        "Invidious failed | instance=%s | media=%s | video_id=%s | status=%s",
-                        base, media_type, vid_id, response.status_code,
-                    )
-                    return None
-                data = response.json()
-                if data.get("error"):
-                    logger.warning(
-                        "Invidious failed | instance=%s | media=%s | video_id=%s | reason=%s",
-                        base, media_type, vid_id, data.get("error"),
-                    )
-                    return None
-                url = pick_invidious_url(data, media_type)
-                if not url:
-                    logger.warning(
-                        "Invidious failed | instance=%s | media=%s | video_id=%s | reason=no media url",
-                        base, media_type, vid_id,
-                    )
-                    return None
-                url = urljoin(base + "/", url)
-                return {"play_url": url, "cache_url": url}
-            except Exception as e:
-                logger.warning(
-                    "Invidious failed | instance=%s | media=%s | video_id=%s | reason=%s",
-                    base, media_type, vid_id, str(e),
-                )
-                return None
-            finally:
-                if session:
-                    session.close()
-
-        async def validate_local_media(filepath):
-            """A downloaded file must be big enough AND decodable by ffmpeg."""
-            if not cached_media_ready(filepath):
-                return False
-            args = [
-                "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-                "-i", filepath, "-map", "0:a:0", "-t", "1", "-f", "null", "-",
-            ]
-            proc = None
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    *args,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                    env=build_subprocess_env(),
-                )
-                await asyncio.wait_for(proc.communicate(), timeout=STREAM_PREFLIGHT_TIMEOUT)
-                return proc.returncode == 0
-            except asyncio.TimeoutError:
-                if proc and proc.returncode is None:
-                    proc.kill()
-                return False
-            except Exception:
-                return False
-
-        async def invidious_dl(vid_id, media_type, filepath):
-            """Returns (path_or_url, is_local_file) on success, else None."""
-            for base in INVIDIOUS_INSTANCES:
-                media = await loop.run_in_executor(
-                    None, fetch_invidious_links_sync, vid_id, media_type, base
-                )
-                if not media:
-                    continue
-                url = media["play_url"]
-                if stream and await validate_stream_source(url):
-                    mark_source(vid_id, media_type, "INVIDIOUS FALLBACK")
-                    schedule_background_cache(url, filepath)
-                    return url, False
-                result = await download_from_source(url, filepath)
-                if result and await validate_local_media(result):
-                    mark_source(vid_id, media_type, "INVIDIOUS FALLBACK")
-                    return result, True
-                logger.warning(
-                    "Invidious media unusable (truncated/corrupt) | instance=%s | media=%s | video_id=%s",
-                    base, media_type, vid_id,
-                )
-                if os.path.exists(filepath):
-                    try:
-                        os.remove(filepath)
-                    except Exception:
-                        pass
-            return None
-
         async def audio_dl(vid_id):
             filepath = os.path.join("downloads", f"{vid_id}.mp3")
             if cached_media_ready(filepath):
@@ -1512,13 +1372,9 @@ class YouTubeAPI:
                     mark_source(vid_id, "audio", "XBIT FALLBACK")
                     return result, True
 
-            invidious_result = await invidious_dl(vid_id, "audio", filepath)
-            if invidious_result:
-                return invidious_result
-
-            mark_source(vid_id, "audio", "WORKER PRIMARY + XBIT + INVIDIOUS FALLBACK", ok=False)
+            mark_source(vid_id, "audio", "WORKER PRIMARY + XBIT FALLBACK", ok=False)
             logger.error(
-                "YouTube source failed | sources=worker_primary,xbit_fallback,invidious_fallback | media=audio | video_id=%s | title=%s",
+                "YouTube source failed | sources=worker_primary,xbit_fallback | media=audio | video_id=%s | title=%s",
                 vid_id,
                 log_title,
             )
@@ -1604,13 +1460,9 @@ class YouTubeAPI:
                     mark_source(vid_id, "video", "XBIT FALLBACK")
                     return result, True
 
-            invidious_result = await invidious_dl(vid_id, "video", filepath)
-            if invidious_result:
-                return invidious_result
-
-            mark_source(vid_id, "video", "WORKER PRIMARY + XBIT + INVIDIOUS FALLBACK", ok=False)
+            mark_source(vid_id, "video", "WORKER PRIMARY + XBIT FALLBACK", ok=False)
             logger.error(
-                "YouTube source failed | sources=worker_primary,xbit_fallback,invidious_fallback | media=video | video_id=%s | title=%s",
+                "YouTube source failed | sources=worker_primary,xbit_fallback | media=video | video_id=%s | title=%s",
                 vid_id,
                 log_title,
             )
