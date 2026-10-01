@@ -29,7 +29,8 @@ LOGGER = logging.getLogger(__name__)
 playeddb = mongodb.played_history
 
 MAX_HISTORY = 300
-DURATION_TOLERANCE = 5  # seconds
+DURATION_TOLERANCE = 5  # (purana, ab use nahi)
+DURATION_LOOSE = 12  # seconds: re-upload / intro ka farq
 
 # chat_id -> list[{"v","t","d"}]
 _CACHE: dict = {}
@@ -54,10 +55,10 @@ def _strip(title: Optional[str], ignore: str = "") -> str:
     """Artist/context ka naam title se hata do (same artist ke alag gaane
     'same song' na ban jayein). ignore = 'tuntun yadav' jaisa phrase."""
     title = title or ""
-    ignore = (ignore or "").strip()
-    if not ignore:
-        return title
-    return re.sub(re.escape(ignore), " ", title, flags=re.IGNORECASE)
+    parts = [x.strip() for x in (ignore or "").split("|") if x.strip()]
+    for part in parts:  # "pawan singh|pavan singh" jaise kai spelling
+        title = re.sub(re.escape(part), " ", title, flags=re.IGNORECASE)
+    return title
 
 
 def _segments(title: Optional[str], ignore: str = "") -> List[str]:
@@ -92,38 +93,47 @@ def _ratio(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
+def _tokens(title: Optional[str], ignore: str = "") -> set:
+    return set(_clean(_strip(title or "", ignore)).split())
+
+
 def _same_song(a: dict, b: dict, ignore: str = "") -> bool:
+    """Same gaana hai ya nahi (naam / artist / channel alag ho tab bhi).
+
+    ignore = artist ka naam (context se). Wo title se hata ke compare hota hai,
+    taaki same artist ke alag gaane 'same' na ban jayein.
+    """
     if a.get("v") and a.get("v") == b.get("v"):
         return True
 
     da, db = to_seconds(a.get("d")), to_seconds(b.get("d"))
-    have_dur = bool(da and db)
-    dur_ok = have_dur and abs(da - db) <= DURATION_TOLERANCE
+    diff = abs(da - db) if (da and db) else None
 
-    # poora title bahut milta ho
-    fa = _clean(_strip(a.get("t", ""), ignore))
-    fb = _clean(_strip(b.get("t", ""), ignore))
-    if fa and fb and _ratio(fa, fb) >= 0.85:
-        if not have_dur or dur_ok:
+    ta, tb = _tokens(a.get("t"), ignore), _tokens(b.get("t"), ignore)
+    if not ta or not tb:
+        return False
+
+    shared = ta & tb
+    small = min(len(ta), len(tb))
+    containment = len(shared) / small  # chhota title kitna bada title mein hai
+
+    # 1) Chhota title poora bade title ke andar (artist/extra shabd alag ho)
+    #    "tu hai kahan"  vs  "aur tu hai kahan raffey usama"
+    if small >= 2 and containment == 1.0:
+        if diff is None or diff <= DURATION_LOOSE or len(shared) >= 3:
             return True
 
-    # gaane wala segment match (artist/channel alag ho tab bhi)
-    for x in _segments(a.get("t"), ignore):
-        for y in _segments(b.get("t"), ignore):
-            tx, ty = set(x.split()), set(y.split())
-            seg_match = (
-                x == y
-                or _ratio(x, y) >= 0.88
-                or (len(tx) >= 2 and (tx <= ty or ty <= tx))
-            )
-            if not seg_match:
-                continue
-            if have_dur:
-                if dur_ok:
-                    return True
-            elif len(tx) >= 2 or len(ty) >= 2:
-                # duration nahi pata: sirf 2+ shabd wale segment par bharosa
-                return True
+    # 2) Zyadatar shabd milte hon (3+ shabd) aur duration kareeb ho
+    if len(shared) >= 3 and containment >= 0.6:
+        if diff is None or diff <= DURATION_LOOSE:
+            return True
+
+    # 3) Title ki spelling thodi alag ho
+    fa, fb = _clean(_strip(a.get("t", ""), ignore)), _clean(_strip(b.get("t", ""), ignore))
+    if fa and fb and _ratio(fa, fb) >= 0.8:
+        if diff is None or diff <= DURATION_LOOSE:
+            return True
+
     return False
 
 
