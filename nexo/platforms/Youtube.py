@@ -41,7 +41,7 @@ logger = LOGGER(__name__)
 # Worker API (kept configurable through env for production overrides)
 WORKER_FALLBACK_API_URL = os.getenv(
     "WORKER_FALLBACK_API_URL",
-    "",
+    "https://youtubenewapi.skybotsdeveloper.workers.dev",
 ).strip()
 WORKER_FALLBACK_API_KEY = os.getenv("WORKER_FALLBACK_API_KEY", "itsmesid").strip()
 YTPROXY = (YTPROXY_URL or "").strip().rstrip("/")
@@ -1035,6 +1035,12 @@ class YouTubeAPI:
                     session.close()
 
         async def download_from_source(url, filepath, headers=None):
+            # Invidious media links are direct files that yt-dlp reports as
+            # "Unsupported URL", so fetch them with requests first.
+            if any(url.startswith(base) for base in INVIDIOUS_INSTANCES):
+                result = await download_with_requests_fallback(url, filepath, headers)
+                if result:
+                    return result
             result = await download_with_ytdlp(url, filepath, headers)
             if result:
                 return result
