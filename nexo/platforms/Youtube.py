@@ -26,7 +26,12 @@ from nexo.utils.formatters import time_to_seconds
 from nexo.utils.url_guard import is_safe_media_url
 from nexo.security import build_subprocess_env
 from nexo.utils.stream.source_status import set_youtube_source_status
-from nexo.utils.autoplay_context_db import looks_like_artist, matches_core
+from nexo.utils.autoplay_context_db import (
+    learn_artist,
+    looks_like_artist,
+    matches_core,
+    matches_topic,
+)
 from nexo.utils.played_db import _same_song
 from config import DURATION_LIMIT, YT_API_KEY, YTPROXY_URL, autoclean
 
@@ -627,7 +632,7 @@ class YouTubeAPI:
         max_duration: Union[int, None] = None,
         is_played=None,
     ) -> tuple:
-        """User ke search (artist / mood) ke andar hi next gaana chuno.
+        """User ke search (artist / topic) ke andar hi next gaana chuno.
 
         ctx       : autoplay_context_db.get_context() ka dict
         is_played : async (videoid, title, duration_sec) -> bool
@@ -636,6 +641,7 @@ class YouTubeAPI:
         """
         kind = ctx.get("kind") or "song"
         core = ctx.get("core") or ""
+        aliases = ctx.get("aliases") or []
         base_search = ctx.get("search") or ctx.get("query") or ""
         if kind == "song" or not base_search:
             return None, "song"
@@ -655,11 +661,16 @@ class YouTubeAPI:
 
         first = await fetch(base_search)
 
-        # Pehli baar: artist hai ya single gaane ka naam, decide karo
+        # Unknown naam: artist hai ya single gaane ka naam? (pehli baar verify)
         if kind == "pending":
             durs = [self._duration_to_seconds(r.get("duration")) for r in first]
-            kind = "artist" if looks_like_artist(core, first, durs) else "song"
-            if kind == "song":
+            if looks_like_artist(core, first, durs):
+                kind = "artist"
+                try:
+                    await learn_artist(core)  # agli baar seedha pehchan lega
+                except Exception as err:
+                    logger.warning("learn_artist failed for %s: %s", core, err)
+            else:
                 return None, "song"
 
         if kind == "artist":
@@ -668,6 +679,7 @@ class YouTubeAPI:
                 f"{core} superhit songs",
                 f"{core} latest song",
                 f"{core} jukebox",
+                f"{core} hit songs",
             ]
         else:
             extra = [f"{base_search} new", f"{base_search} best", f"{base_search} hits"]
@@ -683,8 +695,13 @@ class YouTubeAPI:
 
                 channel = r.get("channel")
                 ch_name = channel.get("name") if isinstance(channel, dict) else None
-                if kind == "artist" and not matches_core(core, r.get("title"), ch_name):
-                    continue  # doosre artist ka gaana, skip
+                title = r.get("title")
+
+                if kind == "artist":
+                    if not matches_core(core, title, ch_name, aliases):
+                        continue  # doosre artist ka gaana, skip
+                elif not matches_topic(ctx, title, ch_name):
+                    continue  # topic se bahar (ya namesake artist), skip
 
                 formatted = self._format_autoplay_candidate(r, current_videoid, max_duration)
                 if not formatted:
@@ -692,7 +709,9 @@ class YouTubeAPI:
                 if is_played and await is_played(
                     formatted["vidid"], formatted["title"], formatted["duration_sec"]
                 ):
+                    logger.info("Autoplay skip (already played): %s", formatted["title"])
                     continue
+                logger.info("Autoplay pick (%s): %s", kind, formatted["title"])
                 return formatted, kind
         return None, kind
 
