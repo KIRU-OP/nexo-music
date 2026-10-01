@@ -27,6 +27,7 @@ from nexo.utils.url_guard import is_safe_media_url
 from nexo.security import build_subprocess_env
 from nexo.utils.stream.source_status import set_youtube_source_status
 from nexo.utils.autoplay_context_db import looks_like_artist, matches_core
+from nexo.utils.played_db import _same_song
 from config import DURATION_LIMIT, YT_API_KEY, YTPROXY_URL, autoclean
 
 logger = LOGGER(__name__)
@@ -497,37 +498,90 @@ class YouTubeAPI:
         max_duration: Union[int, None] = None,
         is_played=None,
     ) -> Union[dict, None]:
-        # is_played: async (videoid, title, duration_sec) -> bool
-        # True ho to wo gaana pehle baj chuka hai, skip hoga.
-        candidates = []
+        """Jo gaana abhi baja uske jaisa DOOSRA gaana chuno (same gaana nahi).
 
-        if videoid and Recommendations is not None:
+        is_played: async (videoid, title, duration_sec) -> bool
+                   True ho to wo gaana pehle baj chuka hai, skip hoga.
+        """
+        seed = {"v": str(videoid or ""), "t": title or "", "d": 0}
+
+        def is_seed_song(cid, ctitle, cdur) -> bool:
+            # Safety: DB fail ho tab bhi jo gaana abhi baja wo dobara na aaye
+            if cid and cid == videoid:
+                return True
+            if not title:
+                return False
+            return _same_song(seed, {"v": str(cid or ""), "t": ctitle or "", "d": cdur})
+
+        async def search_page(text: str, limit: int = 20) -> list:
             try:
-                candidates = await Recommendations.get(videoid, timeout=5) or []
+                res = VideosSearch(text, limit=limit)
+                return (await res.next()).get("result", []) or []
             except Exception as err:
-                logger.warning("Autoplay recommendations failed for %s: %s", videoid, err)
+                logger.warning("Autoplay search failed for %s: %s", text, err)
+                return []
 
-        if not candidates:
+        async def candidate_stream():
+            # 1) YouTube ke related gaane (agar library support kare)
+            if videoid and Recommendations is not None:
+                try:
+                    recs = await Recommendations.get(videoid, timeout=5) or []
+                except Exception as err:
+                    logger.warning("Autoplay recommendations failed for %s: %s", videoid, err)
+                    recs = []
+                for r in recs:
+                    yield r
+
+            # 2) Related nahi mila: gaane ke naam se search karne par wahi gaana
+            #    (alag upload) pehle aata hai. Isliye "similar" / channel ke
+            #    gaane bhi dhoondo, taaki doosre gaane mile.
             query = self._clean_autoplay_query(title)
             if not query:
-                return None
-            try:
-                search = VideosSearch(query, limit=12)
-                candidates = (await search.next()).get("result", [])
-            except Exception as err:
-                logger.warning("Autoplay fallback search failed for %s: %s", query, err)
-                return None
+                return
+            first = await search_page(query)
+            channel_name = None
+            for r in first:
+                if r.get("id") == videoid and isinstance(r.get("channel"), dict):
+                    channel_name = r["channel"].get("name")
+                    break
+            if not channel_name:
+                for r in first[:3]:
+                    if isinstance(r.get("channel"), dict) and r["channel"].get("name"):
+                        channel_name = r["channel"]["name"]
+                        break
 
-        for candidate in candidates:
+            for r in first:
+                yield r
+            extra = [f"{query} similar songs", f"songs like {query}"]
+            if channel_name:
+                extra.append(f"{channel_name} songs")
+            for text in extra:
+                for r in await search_page(text):
+                    yield r
+
+        seen = set()
+        async for candidate in candidate_stream():
+            candidate_id = candidate.get("id")
+            if not candidate_id or candidate_id in seen:
+                continue
+            seen.add(candidate_id)
+
             formatted = self._format_autoplay_candidate(candidate, videoid, max_duration)
             if formatted:
+                if is_seed_song(
+                    formatted["vidid"], formatted["title"], formatted["duration_sec"]
+                ):
+                    logger.info("Autoplay skip (same song): %s", formatted["title"])
+                    continue
                 if is_played and await is_played(
                     formatted["vidid"], formatted["title"], formatted["duration_sec"]
                 ):
+                    logger.info("Autoplay skip (already played): %s", formatted["title"])
                     continue
+                logger.info("Autoplay pick: %s", formatted["title"])
                 return formatted
-            candidate_id = candidate.get("id")
-            if not candidate_id or candidate_id == videoid:
+
+            if candidate_id == videoid:
                 continue
             try:
                 (
@@ -547,10 +601,15 @@ class YouTubeAPI:
                 or (max_duration and duration_sec > max_duration)
             ):
                 continue
+            if is_seed_song(resolved_videoid, resolved_title, duration_sec):
+                logger.info("Autoplay skip (same song): %s", resolved_title)
+                continue
             if is_played and await is_played(
                 resolved_videoid, resolved_title, duration_sec
             ):
+                logger.info("Autoplay skip (already played): %s", resolved_title)
                 continue
+            logger.info("Autoplay pick: %s", resolved_title)
             return {
                 "title": resolved_title,
                 "duration_min": duration_min,
