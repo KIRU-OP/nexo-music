@@ -14,18 +14,18 @@ from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from youtubesearchpython.future import VideosSearch
+from youtubesearchpython.__future__ import VideosSearch
 try:
-    from youtubesearchpython.future.extras import Recommendations
+    from youtubesearchpython.__future__ import Recommendations
 except ImportError:
     Recommendations = None
 import base64
-from VIVAANXMUSIC import LOGGER
-from VIVAANXMUSIC.utils.database import is_on_off
-from VIVAANXMUSIC.utils.formatters import time_to_seconds
-from VIVAANXMUSIC.utils.url_guard import is_safe_media_url
-from VIVAANXMUSIC.security import build_subprocess_env
-from VIVAANXMUSIC.utils.stream.source_status import set_youtube_source_status
+from nexo import LOGGER
+from nexo.utils.database import is_on_off
+from nexo.utils.formatters import time_to_seconds
+from nexo.utils.url_guard import is_safe_media_url
+from nexo.security import build_subprocess_env
+from nexo.utils.stream.source_status import set_youtube_source_status
 from config import DURATION_LIMIT, YT_API_KEY, YTPROXY_URL, autoclean
 
 logger = LOGGER(__name__)
