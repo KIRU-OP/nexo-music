@@ -26,6 +26,13 @@ from nexo.utils.formatters import time_to_seconds
 from nexo.utils.url_guard import is_safe_media_url
 from nexo.security import build_subprocess_env
 from nexo.utils.stream.source_status import set_youtube_source_status
+from nexo.utils.autoplay_context_db import (
+    learn_artist,
+    looks_like_artist,
+    matches_core,
+    matches_topic,
+)
+from nexo.utils.played_db import _same_song
 from config import DURATION_LIMIT, YT_API_KEY, YTPROXY_URL, autoclean
 
 logger = LOGGER(__name__)
@@ -54,6 +61,102 @@ def bool_env(name: str, default: bool = True) -> bool:
     if value is None:
         return default
     return value.strip().lower() not in {"0", "false", "off", "no"}
+
+
+# ---------------------------------------------------------------------------
+# Resilient video lookup: retry VideosSearch, then fall back to yt-dlp
+# ---------------------------------------------------------------------------
+VIDEO_SEARCH_ATTEMPTS = max(1, int_env("YOUTUBE_SEARCH_ATTEMPTS", 4))
+VIDEO_SEARCH_RETRY_DELAY = max(0, int_env("YOUTUBE_SEARCH_RETRY_DELAY_MS", 800)) / 1000
+
+
+def _format_duration(seconds) -> str:
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        return "None"
+    if seconds <= 0:
+        return "None"
+    h, rem = divmod(seconds, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+
+
+def _ytdlp_entry_to_result(entry: dict):
+    vid = entry.get("id")
+    if not vid:
+        return None
+    thumb = entry.get("thumbnail")
+    if not thumb:
+        thumbs = entry.get("thumbnails") or []
+        thumb = thumbs[-1].get("url") if thumbs else None
+    thumb = thumb or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+    return {
+        "id": vid,
+        "title": entry.get("title") or "Unknown",
+        "duration": _format_duration(entry.get("duration")),
+        "link": entry.get("webpage_url") or f"https://www.youtube.com/watch?v={vid}",
+        "thumbnails": [{"url": thumb}],
+    }
+
+
+def _ytdlp_lookup_sync(query: str, limit: int) -> list:
+    is_url = query.startswith(("http://", "https://"))
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "socket_timeout": 15,
+        "extract_flat": False if is_url else "in_playlist",
+    }
+    target = query if is_url else f"ytsearch{limit}:{query}"
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(target, download=False)
+    entries = info.get("entries") if info and "entries" in info else [info]
+    results = []
+    for entry in entries or []:
+        item = _ytdlp_entry_to_result(entry or {})
+        if item:
+            results.append(item)
+    return results[:limit]
+
+
+async def search_videos_with_retry(query: str, limit: int = 1) -> list:
+    """Return a non-empty list of VideosSearch-style results or raise ValueError."""
+    last_exc = None
+    for attempt in range(1, VIDEO_SEARCH_ATTEMPTS + 1):
+        try:
+            data = await VideosSearch(query, limit=limit).next()
+            results = (data or {}).get("result") or []
+            if results:
+                return results
+            last_exc = ValueError("empty search result")
+        except Exception as e:
+            last_exc = e
+        logger.warning(
+            f"VideosSearch attempt {attempt}/{VIDEO_SEARCH_ATTEMPTS} failed "
+            f"for {query!r}: {last_exc}"
+        )
+        if attempt < VIDEO_SEARCH_ATTEMPTS:
+            await asyncio.sleep(VIDEO_SEARCH_RETRY_DELAY * attempt)
+
+    # Last resort: yt-dlp
+    for attempt in range(1, 3):
+        try:
+            loop = asyncio.get_running_loop()
+            results = await loop.run_in_executor(
+                None, _ytdlp_lookup_sync, query, limit
+            )
+            if results:
+                logger.info(f"yt-dlp fallback succeeded for {query!r}")
+                return results
+        except Exception as e:
+            last_exc = e
+            logger.warning(f"yt-dlp lookup attempt {attempt}/2 failed for {query!r}: {e}")
+            await asyncio.sleep(VIDEO_SEARCH_RETRY_DELAY)
+
+    raise ValueError(f"Failed to fetch track details: {last_exc}")
 
 
 STREAM_HTTP_PROBE_TIMEOUT = max(2, int_env("YOUTUBE_STREAM_HTTP_PROBE_TIMEOUT", 15))
@@ -342,16 +445,15 @@ class YouTubeAPI:
             link = link.split("&si=")[0]
 
 
-        results = VideosSearch(link, limit=1)
-        for result in (await results.next())["result"]:
-            title = result["title"]
-            duration_min = result["duration"]
-            thumbnail = result["thumbnails"][0]["url"].split("?")[0]
-            vidid = result["id"]
-            if str(duration_min) == "None":
-                duration_sec = 0
-            else:
-                duration_sec = int(time_to_seconds(duration_min))
+        result = (await search_videos_with_retry(link, limit=1))[0]
+        title = result["title"]
+        duration_min = result["duration"]
+        thumbnail = result["thumbnails"][0]["url"].split("?")[0]
+        vidid = result["id"]
+        if str(duration_min) == "None":
+            duration_sec = 0
+        else:
+            duration_sec = int(time_to_seconds(duration_min))
         return title, duration_min, duration_sec, thumbnail, vidid
 
     async def title(self, link: str, videoid: Union[bool, str] = None):
@@ -364,10 +466,8 @@ class YouTubeAPI:
         elif "&si=" in link:
             link = link.split("&si=")[0]
             
-        results = VideosSearch(link, limit=1)
-        for result in (await results.next())["result"]:
-            title = result["title"]
-        return title
+        result = (await search_videos_with_retry(link, limit=1))[0]
+        return result["title"]
 
     async def duration(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
@@ -379,10 +479,8 @@ class YouTubeAPI:
         elif "&si=" in link:
             link = link.split("&si=")[0]
 
-        results = VideosSearch(link, limit=1)
-        for result in (await results.next())["result"]:
-            duration = result["duration"]
-        return duration
+        result = (await search_videos_with_retry(link, limit=1))[0]
+        return result["duration"]
 
     async def thumbnail(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
@@ -394,10 +492,8 @@ class YouTubeAPI:
         elif "&si=" in link:
             link = link.split("&si=")[0]
 
-        results = VideosSearch(link, limit=1)
-        for result in (await results.next())["result"]:
-            thumbnail = result["thumbnails"][0]["url"].split("?")[0]
-        return thumbnail
+        result = (await search_videos_with_retry(link, limit=1))[0]
+        return result["thumbnails"][0]["url"].split("?")[0]
 
     async def video(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
@@ -473,13 +569,12 @@ class YouTubeAPI:
         elif "&si=" in link:
             link = link.split("&si=")[0]
 
-        results = VideosSearch(link, limit=1)
-        for result in (await results.next())["result"]:
-            title = result["title"]
-            duration_min = result["duration"]
-            vidid = result["id"]
-            yturl = result["link"]
-            thumbnail = result["thumbnails"][0]["url"].split("?")[0]
+        result = (await search_videos_with_retry(link, limit=1))[0]
+        title = result["title"]
+        duration_min = result["duration"]
+        vidid = result["id"]
+        yturl = result["link"]
+        thumbnail = result["thumbnails"][0]["url"].split("?")[0]
         track_details = {
             "title": title,
             "link": yturl,
@@ -494,32 +589,92 @@ class YouTubeAPI:
         videoid: str,
         title: str = "",
         max_duration: Union[int, None] = None,
+        is_played=None,
     ) -> Union[dict, None]:
-        candidates = []
+        """Jo gaana abhi baja uske jaisa DOOSRA gaana chuno (same gaana nahi).
 
-        if videoid and Recommendations is not None:
+        is_played: async (videoid, title, duration_sec) -> bool
+                   True ho to wo gaana pehle baj chuka hai, skip hoga.
+        """
+        seed = {"v": str(videoid or ""), "t": title or "", "d": 0}
+
+        def is_seed_song(cid, ctitle, cdur) -> bool:
+            # Safety: DB fail ho tab bhi jo gaana abhi baja wo dobara na aaye
+            if cid and cid == videoid:
+                return True
+            if not title:
+                return False
+            return _same_song(seed, {"v": str(cid or ""), "t": ctitle or "", "d": cdur})
+
+        async def search_page(text: str, limit: int = 20) -> list:
             try:
-                candidates = await Recommendations.get(videoid, timeout=5) or []
+                res = VideosSearch(text, limit=limit)
+                return (await res.next()).get("result", []) or []
             except Exception as err:
-                logger.warning("Autoplay recommendations failed for %s: %s", videoid, err)
+                logger.warning("Autoplay search failed for %s: %s", text, err)
+                return []
 
-        if not candidates:
+        async def candidate_stream():
+            # 1) YouTube ke related gaane (agar library support kare)
+            if videoid and Recommendations is not None:
+                try:
+                    recs = await Recommendations.get(videoid, timeout=5) or []
+                except Exception as err:
+                    logger.warning("Autoplay recommendations failed for %s: %s", videoid, err)
+                    recs = []
+                for r in recs:
+                    yield r
+
+            # 2) Related nahi mila: gaane ke naam se search karne par wahi gaana
+            #    (alag upload) pehle aata hai. Isliye "similar" / channel ke
+            #    gaane bhi dhoondo, taaki doosre gaane mile.
             query = self._clean_autoplay_query(title)
             if not query:
-                return None
-            try:
-                search = VideosSearch(query, limit=12)
-                candidates = (await search.next()).get("result", [])
-            except Exception as err:
-                logger.warning("Autoplay fallback search failed for %s: %s", query, err)
-                return None
+                return
+            first = await search_page(query)
+            channel_name = None
+            for r in first:
+                if r.get("id") == videoid and isinstance(r.get("channel"), dict):
+                    channel_name = r["channel"].get("name")
+                    break
+            if not channel_name:
+                for r in first[:3]:
+                    if isinstance(r.get("channel"), dict) and r["channel"].get("name"):
+                        channel_name = r["channel"]["name"]
+                        break
 
-        for candidate in candidates:
+            for r in first:
+                yield r
+            extra = [f"{query} similar songs", f"songs like {query}"]
+            if channel_name:
+                extra.append(f"{channel_name} songs")
+            for text in extra:
+                for r in await search_page(text):
+                    yield r
+
+        seen = set()
+        async for candidate in candidate_stream():
+            candidate_id = candidate.get("id")
+            if not candidate_id or candidate_id in seen:
+                continue
+            seen.add(candidate_id)
+
             formatted = self._format_autoplay_candidate(candidate, videoid, max_duration)
             if formatted:
+                if is_seed_song(
+                    formatted["vidid"], formatted["title"], formatted["duration_sec"]
+                ):
+                    logger.info("Autoplay skip (same song): %s", formatted["title"])
+                    continue
+                if is_played and await is_played(
+                    formatted["vidid"], formatted["title"], formatted["duration_sec"]
+                ):
+                    logger.info("Autoplay skip (already played): %s", formatted["title"])
+                    continue
+                logger.info("Autoplay pick: %s", formatted["title"])
                 return formatted
-            candidate_id = candidate.get("id")
-            if not candidate_id or candidate_id == videoid:
+
+            if candidate_id == videoid:
                 continue
             try:
                 (
@@ -539,6 +694,15 @@ class YouTubeAPI:
                 or (max_duration and duration_sec > max_duration)
             ):
                 continue
+            if is_seed_song(resolved_videoid, resolved_title, duration_sec):
+                logger.info("Autoplay skip (same song): %s", resolved_title)
+                continue
+            if is_played and await is_played(
+                resolved_videoid, resolved_title, duration_sec
+            ):
+                logger.info("Autoplay skip (already played): %s", resolved_title)
+                continue
+            logger.info("Autoplay pick: %s", resolved_title)
             return {
                 "title": resolved_title,
                 "duration_min": duration_min,
@@ -548,6 +712,96 @@ class YouTubeAPI:
                 "link": f"{self.base}{resolved_videoid}",
             }
         return None
+
+    async def autoplay_context(
+        self,
+        ctx: dict,
+        current_videoid: str,
+        max_duration: Union[int, None] = None,
+        is_played=None,
+    ) -> tuple:
+        """User ke search (artist / topic) ke andar hi next gaana chuno.
+
+        ctx       : autoplay_context_db.get_context() ka dict
+        is_played : async (videoid, title, duration_sec) -> bool
+        Return    : (recommendation | None, kind)
+                    kind 'song' = ye artist nahi, normal autoplay chalao.
+        """
+        kind = ctx.get("kind") or "song"
+        core = ctx.get("core") or ""
+        aliases = ctx.get("aliases") or []
+        base_search = ctx.get("search") or ctx.get("query") or ""
+        if kind == "song" or not base_search:
+            return None, "song"
+
+        async def fetch(text: str) -> list:
+            out = []
+            try:
+                search = VideosSearch(text, limit=20)
+                for _ in range(2):
+                    page = (await search.next()).get("result", [])
+                    if not page:
+                        break
+                    out.extend(page)
+            except Exception as err:
+                logger.warning("Autoplay context search failed for %s: %s", text, err)
+            return out
+
+        first = await fetch(base_search)
+
+        # Unknown naam: artist hai ya single gaane ka naam? (pehli baar verify)
+        if kind == "pending":
+            durs = [self._duration_to_seconds(r.get("duration")) for r in first]
+            if looks_like_artist(core, first, durs):
+                kind = "artist"
+                try:
+                    await learn_artist(core)  # agli baar seedha pehchan lega
+                except Exception as err:
+                    logger.warning("learn_artist failed for %s: %s", core, err)
+            else:
+                return None, "song"
+
+        if kind == "artist":
+            extra = [
+                f"{core} new songs",
+                f"{core} superhit songs",
+                f"{core} latest song",
+                f"{core} jukebox",
+                f"{core} hit songs",
+            ]
+        else:
+            extra = [f"{base_search} new", f"{base_search} best", f"{base_search} hits"]
+
+        seen = set()
+        for idx, text in enumerate([base_search] + extra):
+            results = first if idx == 0 else await fetch(text)
+            for r in results:
+                vid = r.get("id")
+                if not vid or vid in seen:
+                    continue
+                seen.add(vid)
+
+                channel = r.get("channel")
+                ch_name = channel.get("name") if isinstance(channel, dict) else None
+                title = r.get("title")
+
+                if kind == "artist":
+                    if not matches_core(core, title, ch_name, aliases):
+                        continue  # doosre artist ka gaana, skip
+                elif not matches_topic(ctx, title, ch_name):
+                    continue  # topic se bahar (ya namesake artist), skip
+
+                formatted = self._format_autoplay_candidate(r, current_videoid, max_duration)
+                if not formatted:
+                    continue
+                if is_played and await is_played(
+                    formatted["vidid"], formatted["title"], formatted["duration_sec"]
+                ):
+                    logger.info("Autoplay skip (already played): %s", formatted["title"])
+                    continue
+                logger.info("Autoplay pick (%s): %s", kind, formatted["title"])
+                return formatted, kind
+        return None, kind
 
     async def formats(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
@@ -601,8 +855,7 @@ class YouTubeAPI:
 
         try:
             results = []
-            search = VideosSearch(link, limit=10)
-            search_results = (await search.next()).get("result", [])
+            search_results = await search_videos_with_retry(link, limit=10)
 
             # Filter videos longer than 1 hour
             for result in search_results:
@@ -645,7 +898,7 @@ class YouTubeAPI:
         songvideo: Union[bool, str] = None,
         format_id: Union[bool, str] = None,
         title: Union[bool, str] = None,
-        stream: Union[bool, str] = None,
+        stream: Union[bool, str] = True,
     ) -> str:
         if videoid:
             vid_id = link
@@ -684,7 +937,7 @@ class YouTubeAPI:
                 if isinstance(path, str) and path
             }
             try:
-                from VIVAANXMUSIC.misc import db
+                from nexo.misc import db
 
                 for queue in (db or {}).values():
                     for item in queue or []:
