@@ -333,7 +333,10 @@ async def validate_playable_stream_url(url: str, media_type: str = "audio") -> b
 
 _TITLE_NOISE_RE = re.compile(
     r"\b(official|video|audio|lyrics?|lyrical|full|hd|4k|hq|visualizer|song|songs|"
-    r"music|new|latest|feat\.?|ft\.?|prod\.?|by|from|the)\b",
+    r"music|new|latest|feat\.?|ft\.?|prod\.?|by|from|the|"
+    r"remix(?:es|ed)?|rmx|re-?mix|dj|lo-?fi|slowed|reverb|sped|speed|up|nightcore|"
+    r"8d|cover|mashup|mash-?up|bass|boosted?|version|mix|edit|jhankar|"
+    r"unplugged|acoustic|reprise|extended|original|full|status|shorts?)\b",
     re.IGNORECASE,
 )
 
@@ -344,13 +347,21 @@ def _title_tokens(title: str) -> set:
     return set(re.findall(r"[a-z0-9\u0900-\u097f]+", t))
 
 
-def _same_title(a: str, b: str) -> bool:
-    """Do title ek hi gaane ke lagte hain? (brackets / official / lyrics ignore)"""
+def _same_title(a: str, b: str, da: int = 0, db: int = 0) -> bool:
+    """Do title ek hi gaane ke lagte hain? (brackets / official / lyrics / remix ignore)"""
     ta, tb = _title_tokens(a), _title_tokens(b)
     if not ta or not tb:
         return False
     if ta == tb:
         return True
+    shared = ta & tb
+    # same length (+-2s) aur kaafi shabd mile => wahi gaana (dusra upload)
+    try:
+        if da and db and abs(int(da) - int(db)) <= 2 and shared:
+            if len(shared) / min(len(ta), len(tb)) >= 0.6:
+                return True
+    except (TypeError, ValueError):
+        pass
     small, big = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
     if len(small) >= 2 and small <= big:
         return True
@@ -359,9 +370,9 @@ def _same_title(a: str, b: str) -> bool:
 
 class YouTubeAPI:
     @staticmethod
-    def same_title(a: str, b: str) -> bool:
+    def same_title(a: str, b: str, da: int = 0, db: int = 0) -> bool:
         """Sirf autoplay ke title check ke liye (call.py use karta hai)."""
-        return _same_title(a, b)
+        return _same_title(a, b, da, db)
 
     def __init__(self):
         self.base = "https://www.youtube.com/watch?v="
