@@ -1185,17 +1185,24 @@ class Call:
         core = (ctx or {}).get("ignore") or (ctx or {}).get("core", "")
 
         finished_title = str(finished_track.get("title") or "")
-        recent_titles = [finished_title]
+        # Autoplay history (A -> B -> A bhi rokne ke liye): (title, seconds)
+        history = self.__dict__.setdefault("_autoplay_title_history", {}).setdefault(
+            chat_id, []
+        )
+        history.append((finished_title, seed_seconds))
+        recent = list(history)
         for item in db.get(chat_id) or []:
             if isinstance(item, dict) and item.get("title"):
-                recent_titles.append(str(item["title"]))
+                recent.append((str(item["title"]), int(item.get("seconds") or 0)))
 
         async def _played(vid, title, dur):
-            # Autoplay only: jo gaana abhi baja usi title wala dobara na aaye
-            for old_title in recent_titles:
-                if old_title and YouTube.same_title(old_title, title or ""):
+            # Autoplay only: pehle baja / queue wala gaana dobara na aaye
+            for old_title, old_dur in recent:
+                if old_title and YouTube.same_title(
+                    old_title, title or "", old_dur, dur or 0
+                ):
                     LOGGER(__name__).info(
-                        "Autoplay skip (same title): %s == %s", old_title, title
+                        "Autoplay skip (same title): %r == %r", old_title, title
                     )
                     return True
             return await is_played(chat_id, vid, title, dur, core)
@@ -1238,8 +1245,18 @@ class Call:
         if not recommendation:
             return False
 
+        LOGGER(__name__).info(
+            "Autoplay pick | finished=%r (%ss) | pick=%r (%ss)",
+            finished_title,
+            seed_seconds,
+            recommendation.get("title"),
+            recommendation.get("duration_sec"),
+        )
         if finished_title and YouTube.same_title(
-            finished_title, recommendation.get("title", "")
+            finished_title,
+            recommendation.get("title", ""),
+            seed_seconds,
+            recommendation.get("duration_sec") or 0,
         ):
             LOGGER(__name__).info(
                 "Autoplay dropped (same title as finished track): %s",
@@ -1247,6 +1264,10 @@ class Call:
             )
             return False
 
+        history.append(
+            (recommendation["title"], int(recommendation.get("duration_sec") or 0))
+        )
+        del history[:-30]
         db.setdefault(chat_id, []).append(
             {
                 "title": recommendation["title"].title(),
