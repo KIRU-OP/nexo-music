@@ -185,6 +185,32 @@ def _is_unofficial_title(title: str) -> bool:
     return bool(_UNOFFICIAL_RE.search(title) or _UNOFFICIAL_HI_RE.search(title))
 
 
+_TITLE_NOISE_RE = re.compile(
+    r"\b(official|video|audio|lyrics?|lyrical|full|hd|4k|hq|visualizer|song|songs|"
+    r"music|new|latest|feat\.?|ft\.?|prod\.?|by|from|the)\b",
+    re.IGNORECASE,
+)
+
+
+def _title_tokens(title: str) -> set:
+    t = re.sub(r"\[[^\]]*\]|\([^\)]*\)", " ", title or "")
+    t = _TITLE_NOISE_RE.sub(" ", t.lower())
+    return set(re.findall(r"[a-z0-9\u0900-\u097f]+", t))
+
+
+def _same_title(a: str, b: str) -> bool:
+    """Do title ek hi gaane ke lagte hain? (brackets / official / lyrics ignore)"""
+    ta, tb = _title_tokens(a), _title_tokens(b)
+    if not ta or not tb:
+        return False
+    if ta == tb:
+        return True
+    small, big = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    if len(small) >= 2 and small <= big:
+        return True
+    return len(ta & tb) / len(ta | tb) >= 0.7
+
+
 def _norm_channel_name(name: str) -> str:
     name = re.sub(r"\s*-\s*topic\s*$", "", name or "", flags=re.IGNORECASE)
     name = _CHANNEL_NOISE_RE.sub(" ", name)
@@ -662,6 +688,8 @@ class YouTubeAPI:
                 return True
             if not title:
                 return False
+            if _same_title(title, ctitle or ""):
+                return True
             return _same_song(seed, {"v": str(cid or ""), "t": ctitle or "", "d": cdur})
 
         async def search_page(text: str, limit: int = 20) -> list:
@@ -703,8 +731,9 @@ class YouTubeAPI:
 
             for r in first:
                 yield r
-            extra = [f"{query} similar songs", f"songs like {query}"]
+            extra = [f"{query} official video", f"songs like {query}"]
             if channel_name:
+                extra.insert(0, f"{channel_name} official songs")
                 extra.append(f"{channel_name} songs")
             for text in extra:
                 for r in await search_page(text):
@@ -719,6 +748,11 @@ class YouTubeAPI:
 
             formatted = self._format_autoplay_candidate(candidate, videoid, max_duration)
             if formatted:
+                if _is_unofficial_title(formatted["title"]):
+                    logger.info("Autoplay skip (unofficial/remix): %s", formatted["title"])
+                    continue
+                if formatted["duration_sec"] < OFFICIAL_MIN_SECONDS:
+                    continue
                 if is_seed_song(
                     formatted["vidid"], formatted["title"], formatted["duration_sec"]
                 ):
@@ -752,6 +786,11 @@ class YouTubeAPI:
                 or (max_duration and duration_sec > max_duration)
             ):
                 continue
+            if _is_unofficial_title(resolved_title):
+                logger.info("Autoplay skip (unofficial/remix): %s", resolved_title)
+                continue
+            if duration_sec < OFFICIAL_MIN_SECONDS:
+                continue
             if is_seed_song(resolved_videoid, resolved_title, duration_sec):
                 logger.info("Autoplay skip (same song): %s", resolved_title)
                 continue
@@ -770,6 +809,10 @@ class YouTubeAPI:
                 "link": f"{self.base}{resolved_videoid}",
             }
         return None
+
+    @staticmethod
+    def same_title(a: str, b: str) -> bool:
+        return _same_title(a, b)
 
     async def _find_official_channel_id(self, core, aliases, results, fetch):
         """Artist ka apna official channel (ya '- Topic' channel) dhoondo."""
