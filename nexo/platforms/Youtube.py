@@ -159,6 +159,62 @@ async def search_videos_with_retry(query: str, limit: int = 1) -> list:
     raise ValueError(f"Failed to fetch track details: {last_exc}")
 
 
+# ---------------------------------------------------------------------------
+# Official-only artist autoplay: remix filter + official channel catalog
+# ---------------------------------------------------------------------------
+_UNOFFICIAL_RE = re.compile(
+    r"\b(remix(?:es|ed)?|rmx|re-?mix|lo-?fi|slowed|reverb|sped\s*up|speed\s*up|"
+    r"nightcore|8d|cover|mashup|mash-?up|bass\s*boost(?:ed)?|dj|jhankar|karaoke|"
+    r"instrumental|ringtone|whatsapp|status|shorts?|reaction|tiktok|dance\s*mix|"
+    r"club\s*mix|mix|edit|flip|unplugged\s*cover)\b",
+    re.IGNORECASE,
+)
+_UNOFFICIAL_HI_RE = re.compile(r"(रीमिक्स|रिमिक्स|डीजे|लोफी|झंकार|मैशप)")
+_CHANNEL_NOISE_RE = re.compile(
+    r"\b(official|topic|music|songs?|channel|vevo|hd)\b", re.IGNORECASE
+)
+OFFICIAL_MIN_SECONDS = max(30, int_env("AUTOPLAY_OFFICIAL_MIN_SECONDS", 90))
+OFFICIAL_CATALOG_LIMIT = max(20, int_env("AUTOPLAY_OFFICIAL_CATALOG_LIMIT", 400))
+OFFICIAL_CATALOG_TTL = max(60, int_env("AUTOPLAY_OFFICIAL_CATALOG_TTL", 3600))
+
+
+def _is_unofficial_title(title: str) -> bool:
+    """True agar title remix / lofi / slowed / cover jaisa unofficial lage."""
+    if not title:
+        return False
+    return bool(_UNOFFICIAL_RE.search(title) or _UNOFFICIAL_HI_RE.search(title))
+
+
+def _norm_channel_name(name: str) -> str:
+    name = re.sub(r"\s*-\s*topic\s*$", "", name or "", flags=re.IGNORECASE)
+    name = _CHANNEL_NOISE_RE.sub(" ", name)
+    return re.sub(r"[^a-z0-9\u0900-\u097f]+", "", name.lower())
+
+
+def _ytdlp_channel_catalog_sync(channel_id: str, limit: int) -> list:
+    """Channel ki saari uploads (poori playlist) flat mode mein, jaldi."""
+    if channel_id.startswith("UC"):
+        url = f"https://www.youtube.com/playlist?list=UU{channel_id[2:]}"
+    else:
+        url = f"https://www.youtube.com/channel/{channel_id}/videos"
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "extract_flat": True,
+        "playlistend": limit,
+        "socket_timeout": 20,
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    results = []
+    for entry in (info or {}).get("entries") or []:
+        item = _ytdlp_entry_to_result(entry or {})
+        if item:
+            results.append(item)
+    return results
+
+
 STREAM_HTTP_PROBE_TIMEOUT = max(2, int_env("YOUTUBE_STREAM_HTTP_PROBE_TIMEOUT", 15))
 STREAM_PREFLIGHT_TIMEOUT = max(3, int_env("YOUTUBE_STREAM_PREFLIGHT_TIMEOUT", 15))
 STREAM_PREFLIGHT_ENABLED = bool_env("YOUTUBE_STREAM_PREFLIGHT", True)
@@ -345,6 +401,8 @@ class YouTubeAPI:
             "existing_files": 0
         }
         self._background_cache_tasks = {}
+        self._artist_channel_cache = {}
+        self._artist_catalog_cache = {}
 
     def _has_disallowed_url_chars(self, link: str) -> bool:
         return any(char in link for char in [";", "&", "|", "$", "\n", "\r", "`"])
@@ -713,6 +771,56 @@ class YouTubeAPI:
             }
         return None
 
+    async def _find_official_channel_id(self, core, aliases, results, fetch):
+        """Artist ka apna official channel (ya '- Topic' channel) dhoondo."""
+        key = (core or "").strip().lower()
+        if key in self._artist_channel_cache:
+            return self._artist_channel_cache[key]
+
+        targets = {
+            n
+            for n in [_norm_channel_name(core)]
+            + [_norm_channel_name(str(a)) for a in (aliases or [])]
+            if n
+        }
+
+        def scan(items):
+            topic_id = None
+            for r in items or []:
+                ch = r.get("channel")
+                if not isinstance(ch, dict):
+                    continue
+                cid, name = ch.get("id"), ch.get("name")
+                if not cid or not name or _norm_channel_name(name) not in targets:
+                    continue
+                if re.search(r"-\s*topic\s*$", name, re.IGNORECASE):
+                    topic_id = topic_id or cid
+                else:
+                    return cid  # artist ka apna official channel
+            return topic_id
+
+        channel_id = scan(results)
+        if not channel_id:
+            channel_id = scan(await fetch(f"{core} official"))
+        self._artist_channel_cache[key] = channel_id
+        logger.info("Autoplay official channel | core=%r | channel=%s", core, channel_id)
+        return channel_id
+
+    async def _official_catalog(self, channel_id: str) -> list:
+        cached = self._artist_catalog_cache.get(channel_id)
+        if cached and time.monotonic() - cached[0] < OFFICIAL_CATALOG_TTL:
+            return cached[1]
+        try:
+            loop = asyncio.get_running_loop()
+            catalog = await loop.run_in_executor(
+                None, _ytdlp_channel_catalog_sync, channel_id, OFFICIAL_CATALOG_LIMIT
+            )
+        except Exception as err:
+            logger.warning("Official catalog fetch failed for %s: %s", channel_id, err)
+            return cached[1] if cached else []
+        self._artist_catalog_cache[channel_id] = (time.monotonic(), catalog)
+        return catalog
+
     async def autoplay_context(
         self,
         ctx: dict,
@@ -773,6 +881,32 @@ class YouTubeAPI:
             extra = [f"{base_search} new", f"{base_search} best", f"{base_search} hits"]
 
         seen = set()
+
+        # A) Artist ka official channel: uski poori playlist (saare gaane) pehle
+        if kind == "artist":
+            channel_id = await self._find_official_channel_id(core, aliases, first, fetch)
+            if channel_id:
+                for r in await self._official_catalog(channel_id):
+                    vid = r.get("id")
+                    if not vid or vid in seen:
+                        continue
+                    seen.add(vid)
+                    title = r.get("title")
+                    if _is_unofficial_title(title):
+                        continue  # remix / lofi / slowed, skip
+                    formatted = self._format_autoplay_candidate(
+                        r, current_videoid, max_duration
+                    )
+                    if not formatted or formatted["duration_sec"] < OFFICIAL_MIN_SECONDS:
+                        continue
+                    if is_played and await is_played(
+                        formatted["vidid"], formatted["title"], formatted["duration_sec"]
+                    ):
+                        continue
+                    logger.info("Autoplay pick (official): %s", formatted["title"])
+                    return formatted, kind
+
+        # B) Official catalog khatam / channel nahi mila: search, par remix-free
         for idx, text in enumerate([base_search] + extra):
             results = first if idx == 0 else await fetch(text)
             for r in results:
@@ -786,6 +920,8 @@ class YouTubeAPI:
                 title = r.get("title")
 
                 if kind == "artist":
+                    if _is_unofficial_title(title):
+                        continue  # remix / lofi / slowed, skip
                     if not matches_core(core, title, ch_name, aliases):
                         continue  # doosre artist ka gaana, skip
                 elif not matches_topic(ctx, title, ch_name):
