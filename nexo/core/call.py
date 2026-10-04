@@ -1191,7 +1191,7 @@ class Call:
                 recent_titles.append(str(item["title"]))
 
         async def _played(vid, title, dur):
-            # Jo gaana abhi baja (ya queue mein hai) usi title wala dobara na aaye
+            # Autoplay only: jo gaana abhi baja usi title wala dobara na aaye
             for old_title in recent_titles:
                 if old_title and YouTube.same_title(old_title, title or ""):
                     LOGGER(__name__).info(
