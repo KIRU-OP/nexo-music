@@ -1184,7 +1184,20 @@ class Call:
             LOGGER(__name__).warning("autoplay context read failed | %s", err)
         core = (ctx or {}).get("ignore") or (ctx or {}).get("core", "")
 
+        finished_title = str(finished_track.get("title") or "")
+        recent_titles = [finished_title]
+        for item in db.get(chat_id) or []:
+            if isinstance(item, dict) and item.get("title"):
+                recent_titles.append(str(item["title"]))
+
         async def _played(vid, title, dur):
+            # Jo gaana abhi baja (ya queue mein hai) usi title wala dobara na aaye
+            for old_title in recent_titles:
+                if old_title and YouTube.same_title(old_title, title or ""):
+                    LOGGER(__name__).info(
+                        "Autoplay skip (same title): %s == %s", old_title, title
+                    )
+                    return True
             return await is_played(chat_id, vid, title, dur, core)
 
         try:
@@ -1223,6 +1236,15 @@ class Call:
             return False
 
         if not recommendation:
+            return False
+
+        if finished_title and YouTube.same_title(
+            finished_title, recommendation.get("title", "")
+        ):
+            LOGGER(__name__).info(
+                "Autoplay dropped (same title as finished track): %s",
+                recommendation.get("title"),
+            )
             return False
 
         db.setdefault(chat_id, []).append(
