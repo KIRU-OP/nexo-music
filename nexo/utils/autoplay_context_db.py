@@ -14,6 +14,9 @@ Fark v1 se:
     singer ke gaane nahi aate), aur artist mode mein doosre artist ka gaana kabhi nahi aata.
   * Jo artist list mein nahi, wo YouTube se pehchana jata hai aur DB mein seekh liya jata hai.
 
+v2.3: LANGUAGE LOCK -- Bhojpuri lagaya to Bhojpuri hi, Hindi to Hindi, Marathi to Marathi...
+  Doosri language ka gaana kabhi nahi (dekho detect_language / language_match / pick_next).
+
 v2.2: HAR gaane ka type (mood + language + genre) Claude se pehchana jata hai
   (ANTHROPIC_API_KEY env chahiye; na ho to keyword wala fallback chalta hai).
   Autoplay usi type ke gaane chunta hai -- kisi bhi gaane ke liye, sirf examples ke liye nahi.
@@ -36,7 +39,7 @@ Collections:
   autoplay_song_types : {"key", "mood", "language", "genre", "queries", "ts"}  (classify cache)
 
 Context doc mein ye naye fields bhi hain: "mood", "query_mood", "seed_vid", "seed_title",
-"song_type", "type_queries".
+"song_type", "type_queries", "lang", "query_lang".
 """
 
 import asyncio
@@ -94,11 +97,30 @@ _LOOKUP: Dict[str, str] = {}      # alias(norm) -> canonical(norm)
 _NOSPACE: Dict[str, str] = {}     # alias bina space -> canonical
 _BY_TOKENS: Dict[int, List[str]] = {}  # token count -> [alias...]  (fuzzy ke liye)
 _ALIASES_OF: Dict[str, set] = {}  # canonical -> {saare alias}
+_ARTIST_LANG: Dict[str, str] = {}   # canonical artist -> language (ARTISTS ki key se)
 _NAMESAKES: Dict[str, List[str]] = {}  # "aarti" -> ["aarti tabiyar", ...]
 _LEARNED_LOADED = False
 
 
-def _register(name: str, aliases: Optional[List[str]] = None) -> None:
+_LANG_KEYS = {
+    "bhojpuri": "bhojpuri", "marathi": "marathi", "punjabi": "punjabi", "haryanvi": "haryanvi",
+    "rajasthani": "rajasthani", "gujarati": "gujarati", "tamil": "tamil", "telugu": "telugu",
+    "kannada": "kannada", "malayalam": "malayalam", "bengali": "bengali", "bangla": "bengali",
+    "odia": "odia", "oriya": "odia", "assamese": "assamese", "urdu": "urdu", "english": "english",
+    "hindi": "hindi", "bollywood": "hindi", "hinglish": "hindi", "nepali": "nepali",
+    "maithili": "maithili", "magahi": "magahi", "garhwali": "garhwali", "pahari": "pahari",
+    "sindhi": "sindhi", "kashmiri": "kashmiri", "konkani": "konkani", "pakistani": "urdu",
+}
+
+
+def _lang_from_key(key: str) -> Optional[str]:
+    for w in re.split(r"[^a-z]+", (key or "").lower()):
+        if w in _LANG_KEYS:
+            return _LANG_KEYS[w]
+    return None
+
+
+def _register(name: str, aliases: Optional[List[str]] = None, lang: Optional[str] = None) -> None:
     canon = _norm(name)
     if not canon:
         return
@@ -110,6 +132,8 @@ def _register(name: str, aliases: Optional[List[str]] = None) -> None:
         canon = base
 
     group = _ALIASES_OF.setdefault(canon, set())
+    if lang:
+        _ARTIST_LANG.setdefault(canon, lang)
     for a in [canon] + [x for x in (aliases or [])]:
         n = _norm(a)
         if not n:
@@ -121,8 +145,9 @@ def _register(name: str, aliases: Optional[List[str]] = None) -> None:
 
 def _build_index() -> None:
     for _lang, blob in ARTISTS.items():
+        _lk = _lang_from_key(_lang)
         for raw in blob.split(","):
-            _register(raw)
+            _register(raw, lang=_lk)
     for canon, als in ALIASES.items():
         _register(canon, als)
     for nm in NAMESAKE_ARTISTS:
@@ -539,6 +564,116 @@ def mood_hit(mood: Optional[str], title: Optional[str], channel: Optional[str] =
     return bool(mood) and mood in detect_moods(_hay(title, channel))
 
 
+# =====================================================================
+# LANGUAGE LOCK  (Bhojpuri -> Bhojpuri, Hindi -> Hindi, Marathi -> Marathi ...)
+# =====================================================================
+LANG_NAMES = _LANG_KEYS
+STRICT_LANG = os.getenv("AUTOPLAY_STRICT_LANG", "0") == "1"   # 1 = jiski language pata na chale wo bhi reject
+
+_SCRIPTS: List[Tuple["re.Pattern", str]] = [
+    (re.compile(r"[\u0B80-\u0BFF]"), "tamil"),
+    (re.compile(r"[\u0C00-\u0C7F]"), "telugu"),
+    (re.compile(r"[\u0C80-\u0CFF]"), "kannada"),
+    (re.compile(r"[\u0D00-\u0D7F]"), "malayalam"),
+    (re.compile(r"[\u0980-\u09FF]"), "bengali"),
+    (re.compile(r"[\u0A00-\u0A7F]"), "punjabi"),
+    (re.compile(r"[\u0A80-\u0AFF]"), "gujarati"),
+    (re.compile(r"[\u0B00-\u0B7F]"), "odia"),
+    (re.compile(r"[\u0600-\u06FF]"), "urdu"),
+]
+
+# Us language ke khaas shabd (doosri languages se alag). Hindi ke liye koi nahi:
+# Hindi wo hai jo baaki sab nahi (ya jab naam/artist/Claude bataye).
+_LANG_MARKERS: Dict[str, set] = {
+    "bhojpuri": {"hamar", "hamaar", "hamra", "tohar", "tohaar", "tohra", "tohre", "bhauji", "bhatar",
+                 "bhatara", "lagelu", "lagela", "kailu", "kaile", "raua", "rauwa",
+                 "हमार", "तोहार", "तोहरा", "भउजी", "भतार", "लागेला", "रउवा"},
+    "marathi": {"ahe", "aahe", "majhi", "majhya", "mazi", "mazya", "tujhi", "tujhya", "tuzi", "tuzya",
+                "tula", "aamhi", "amhi", "zingaat", "zingat", "lavani", "lavni", "mauli", "aaicha",
+                "आहे", "माझी", "माझ्या", "तुझी", "तुझ्या", "तुला", "आम्ही", "लावणी", "माऊली"},
+    "punjabi": {"kudi", "kudiye", "munda", "jatt", "jatti", "gabru", "tenu", "kithe", "pind", "bhangra",
+                "sohni", "mahiya"},
+    "haryanvi": {"haryanvi", "haryana", "chhori", "jaatni", "jatni"},
+    "rajasthani": {"rajasthani", "padharo", "mhare", "mhari", "thare", "ghoomar"},
+    "gujarati": {"garba", "gujarati"},
+}
+
+
+def normalize_lang(x: Optional[str]) -> Optional[str]:
+    """'Bhojpuri' / 'hindi/urdu' / 'Hinglish' -> 'bhojpuri' / 'hindi' / 'hindi'."""
+    for w in _norm(x).split():
+        if w in LANG_NAMES:
+            return LANG_NAMES[w]
+    return None
+
+
+def explicit_language(text: Optional[str]) -> Optional[str]:
+    """Query / title mein sirf language ka NAAM likha ho to wahi ("bhojpuri sad songs")."""
+    found = {LANG_NAMES[t] for t in _norm(text).split() if t in LANG_NAMES}
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def detect_language(
+    title: Optional[str], channel: Optional[str] = None, extra_text: Optional[str] = None
+) -> Optional[str]:
+    """Gaane ki language (bina Claude ke). Signals: language ka naam > script > artist > khaas shabd.
+    Pakka na ho to None (zabardasti Hindi nahi maante)."""
+    scores: Dict[str, float] = {}
+
+    def add(lg: Optional[str], w: float) -> None:
+        if lg:
+            scores[lg] = scores.get(lg, 0) + w
+
+    t_raw, c_raw, x_raw = title or "", channel or "", (extra_text or "")[:600]
+    for raw, w in ((t_raw, 3), (c_raw, 2), (x_raw, 1)):
+        for lg in {LANG_NAMES[t] for t in _norm(raw).split() if t in LANG_NAMES}:
+            add(lg, w)
+    for rx, lg in _SCRIPTS:
+        if rx.search(t_raw) or rx.search(c_raw):
+            add(lg, 4)
+
+    roman = _norm(f"{_roman(t_raw)} {_roman(c_raw)}").split()
+    raw_toks = set(_norm(f"{t_raw} {c_raw}").split()) | set(roman)
+    try:
+        names, _ = find_artists(roman)
+        for nm in names:
+            add(_ARTIST_LANG.get(nm), 2)
+    except Exception:
+        pass
+    for lg, marks in _LANG_MARKERS.items():
+        add(lg, min(len(raw_toks & marks), 3))
+
+    if not scores:
+        return None
+    ranked = sorted(scores.items(), key=lambda kv: -kv[1])
+    if ranked[0][1] < 2:
+        return None
+    if len(ranked) > 1 and ranked[1][1] == ranked[0][1]:
+        return None
+    return ranked[0][0]
+
+
+def language_match(
+    lang: Optional[str], title: Optional[str], channel: Optional[str] = None
+) -> int:
+    """1 = wahi language, 0 = pata nahi chala, -1 = doosri language (reject)."""
+    if not lang:
+        return 1
+    cl = detect_language(title, channel)
+    if cl is None:
+        return 0
+    return 1 if cl == lang else -1
+
+
+async def set_language(chat_id: int, lang: Optional[str]) -> None:
+    """Haath se language lock (ya None = hatao). Jaise /lang bhojpuri."""
+    chat_id = int(chat_id)
+    lg = normalize_lang(lang)
+    await contextdb.update_one({"chat_id": chat_id}, {"$set": {"lang": lg}})
+    if chat_id in _CACHE:
+        _CACHE[chat_id]["lang"] = lg
+
+
 def parse_query(query: str) -> Optional[dict]:
     """_parse_query_core + mood ("sad songs" -> mood=sad)."""
     parsed = _parse_query_core(query)
@@ -547,6 +682,9 @@ def parse_query(query: str) -> Optional[dict]:
     qm = dominant_mood(_norm(query))
     parsed["query_mood"] = qm
     parsed["mood"] = qm
+    ql = explicit_language(query)                  # "bhojpuri sad songs" -> bhojpuri
+    parsed["query_lang"] = ql
+    parsed["lang"] = ql if parsed.get("kind") != "artist" else None
     return parsed
 
 
@@ -558,18 +696,138 @@ _SIMILAR = 0.86           # itna similar title = same gaana (lyrics / official v
 _PLAYED: Dict[int, List[dict]] = {}
 
 _TITLE_NOISE = re.compile(
-    r"\b(official|video|videos|audio|lyrics?|lyrical|full|hd|4k|1080p|song|songs|new|latest|"
-    r"version|status|jukebox|song|ft|feat|featuring|remix|slowed|reverb|lofi|with)\b"
+    r"\b(official|video|videos|audio|lyrics?|lyrical|full|hd|hq|4k|1080p|song|songs|new|latest|"
+    r"version|status|jukebox|ft|feat|featuring|remix|slowed|reverb|lofi|with|hindi|punjabi|"
+    r"bhojpuri|tamil|telugu|english|movie|film|from|the|female|male|cover|unplugged|acoustic|"
+    r"reprise|original|music|vevo|ost|soundtrack|bass|boosted|8d|3d|nightcore|studio|"
+    r"visualizer|teaser|promo|out|now|hit|hits|best|top|20\d\d)\b"
 )
+
+
+# ---- Devanagari -> Roman (taaki "तू है कहाँ" aur "Tu Hai Kahan" same gaana mane jaayein)
+_DEVA = re.compile(r"[\u0900-\u097F]")
+_DEV_V = {"अ": "a", "आ": "aa", "इ": "i", "ई": "ee", "उ": "u", "ऊ": "oo", "ऋ": "ri", "ए": "e",
+          "ऐ": "ai", "ओ": "o", "औ": "au", "ऑ": "o", "ऍ": "e"}
+_DEV_M = {"ा": "aa", "ि": "i", "ी": "ee", "ु": "u", "ू": "oo", "ृ": "ri", "े": "e", "ै": "ai",
+          "ो": "o", "ौ": "au", "ॉ": "o", "ॅ": "e"}
+_DEV_C = {"क": "k", "ख": "kh", "ग": "g", "घ": "gh", "ङ": "n", "च": "ch", "छ": "chh", "ज": "j",
+          "झ": "jh", "ञ": "n", "ट": "t", "ठ": "th", "ड": "d", "ढ": "dh", "ण": "n", "त": "t",
+          "थ": "th", "द": "d", "ध": "dh", "न": "n", "प": "p", "फ": "f", "ब": "b", "भ": "bh",
+          "म": "m", "य": "y", "र": "r", "ल": "l", "व": "v", "श": "sh", "ष": "sh", "स": "s",
+          "ह": "h", "ळ": "l", "क़": "q", "ख़": "kh", "ग़": "g", "ज़": "z", "ड़": "r", "ढ़": "rh",
+          "फ़": "f", "य़": "y"}
+
+
+def _roman(text: Optional[str]) -> str:
+    """Devanagari -> Roman (mota-mota). Roman text jaisa hai waisa."""
+    text = text or ""
+    if not _DEVA.search(text):
+        return text
+    out: List[str] = []
+    n, i = len(text), 0
+    while i < n:
+        ch = text[i]
+        if ch in _DEV_C:
+            out.append(_DEV_C[ch])
+            j = i + 1
+            if j < n and text[j] == "\u093c":      # nukta
+                j += 1
+            nxt = text[j] if j < n else ""
+            if nxt == "\u094d":                     # halant
+                i = j + 1
+                continue
+            if nxt in _DEV_M:
+                out.append(_DEV_M[nxt])
+                i = j + 1
+                continue
+            if nxt and _DEVA.match(nxt):            # shabd ke beech mein -> 'a'
+                out.append("a")
+            i = j
+            continue
+        if ch in _DEV_V:
+            out.append(_DEV_V[ch])
+        elif ch in "\u0902\u0901":
+            out.append("n")
+        elif ch == "\u0903":
+            out.append("h")
+        elif ch in _DEV_M:
+            out.append(_DEV_M[ch])
+        elif ch in "\u093c\u094d":
+            pass
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _phon(w: str) -> str:
+    """Spelling ka farq mita do: kahan/kahaan/kaha, pyar/pyaar, ishq/ishk, mohabbat/muhabbat."""
+    w = w.lower()
+    for a, b in (("aa", "a"), ("ee", "i"), ("oo", "u"), ("ii", "i"), ("uu", "u"), ("ph", "f"),
+                 ("ck", "k"), ("q", "k"), ("w", "v"), ("z", "j"), ("ai", "e"), ("ay", "e"),
+                 ("o", "u")):
+        w = w.replace(a, b)
+    return re.sub(r"(.)\1+", r"\1", w)
+
+
+def _tok_eq(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    return len(a) >= 4 and len(b) >= 4 and SequenceMatcher(None, a, b).ratio() >= 0.84
+
+
+def _fuzzy_overlap(small: set, big: set) -> int:
+    """small ke kitne shabd big mein (spelling ka thoda farq chhodke) mil gaye."""
+    ps = {_phon(w) for w in small}
+    pb = {_phon(w) for w in big}
+    return sum(1 for w in ps if any(_tok_eq(w, x) for x in pb))
+
 
 
 def title_key(title: Optional[str]) -> str:
     """Title ko saaf karke key banao: bracket, 'official video' jaise shabd hata do."""
-    t = re.sub(r"[\(\[\{].*?[\)\]\}]", " ", (title or "").lower())
-    t = t.split("|")[0]
+    t = re.sub(r"[\(\[\{].*?[\)\]\}]", " ", _roman(title).lower())
     t = _norm(t)
     t = _TITLE_NOISE.sub(" ", t)
     return re.sub(r"\s+", " ", t).strip()
+
+
+def core_tokens(title: Optional[str], channel: Optional[str] = None) -> List[str]:
+    """Sirf GAANE ke naam ke shabd: noise, channel ka naam aur artist ke naam hata ke.
+    "Tu Hai Kahan - Raftaar (Official)" aur "Tu Hai Kahan | AUR Lyrics" -> dono ["tu","hai","kahan"]"""
+    t = re.sub(r"[\(\[\{].*?[\)\]\}]", " ", _roman(title).lower())
+    toks = [w for w in _TITLE_NOISE.sub(" ", _norm(t)).split() if w]
+    if not toks:
+        return []
+    drop = set(_norm(_roman(channel)).split()) if channel else set()
+    try:
+        _, used = find_artists(toks)          # known artists ke naam hata do
+        toks = [w for w, u in zip(toks, used) if not u]
+    except Exception:
+        pass
+    left = [w for w in toks if w not in drop]
+    return left or toks
+
+
+def parse_duration(d) -> Optional[int]:
+    """Seconds / 'mm:ss' / 'h:mm:ss' -> int seconds (samajh na aaye to None)."""
+    if d is None or d == "":
+        return None
+    if isinstance(d, (int, float)):
+        return int(d) if d > 0 else None
+    parts = str(d).strip().split(":")
+    try:
+        nums = [int(x) for x in parts]
+    except ValueError:
+        return None
+    sec = 0
+    for n in nums:
+        sec = sec * 60 + n
+    return sec or None
+
+
+def _result_duration(r: dict) -> Optional[int]:
+    return parse_duration(r.get("duration_sec") or r.get("duration") or r.get("duration_min"))
 
 
 async def _load_played(chat_id: int) -> List[dict]:
@@ -585,15 +843,41 @@ async def _load_played(chat_id: int) -> List[dict]:
     return items
 
 
-def _is_played(items: List[dict], vid: Optional[str], title: Optional[str]) -> bool:
-    key = title_key(title)
-    for it in items:
-        if vid and it.get("id") == vid:
+def _same_song(it: dict, vid: Optional[str], key: str, toks: set, dur: Optional[int]) -> bool:
+    """Kya ye played item wahi gaana hai? (re-upload, doosra thumbnail, alag title wording bhi)"""
+    if vid and it.get("id") == vid:
+        return True
+    k = it.get("key") or ""
+    if key and k and (key == k or SequenceMatcher(None, key, k).ratio() >= _SIMILAR):
+        return True
+    t2 = set(it.get("toks") or [])
+    if toks and t2:
+        small, big = (toks, t2) if len(toks) <= len(t2) else (t2, toks)
+        m = _fuzzy_overlap(small, big)       # spelling ke chhote farq maaf
+        n = len(small)
+        # chhote title ke saare shabd bade mein hain ("tum hi ho" in "tum hi ho aashiqui 2")
+        if m == n and (n >= 3 or sum(len(w) for w in small) >= 10):
             return True
-        k = it.get("key") or ""
-        if key and k and (key == k or SequenceMatcher(None, key, k).ratio() >= _SIMILAR):
+        # 3+ shabd milte aur 75%+ title same: baaki sirf extra (prod by, singer, label...)
+        if m >= 3 and m / n >= 0.75:
+            return True
+        # duration lagbhag same + title ke aadhe shabd milte -> wahi gaana, doosri upload
+        d2 = it.get("dur")
+        if dur and d2 and abs(dur - d2) <= 4 and m >= 1 and m / n >= 0.5:
             return True
     return False
+
+
+def _is_played(
+    items: List[dict],
+    vid: Optional[str],
+    title: Optional[str],
+    channel: Optional[str] = None,
+    dur: Optional[int] = None,
+) -> bool:
+    key = title_key(title)
+    toks = set(core_tokens(title, channel))
+    return any(_same_song(it, vid, key, toks, dur) for it in items)
 
 
 def _vid(r: dict) -> str:
@@ -607,8 +891,11 @@ def _channel_name(r: dict) -> Optional[str]:
     return ch if isinstance(ch, str) else None
 
 
-async def has_played(chat_id: int, vid: Optional[str], title: Optional[str]) -> bool:
-    return _is_played(await _load_played(int(chat_id)), vid, title)
+async def has_played(
+    chat_id: int, vid: Optional[str], title: Optional[str],
+    channel: Optional[str] = None, duration=None,
+) -> bool:
+    return _is_played(await _load_played(int(chat_id)), vid, title, channel, parse_duration(duration))
 
 
 async def clear_played(chat_id: int) -> None:
@@ -625,6 +912,7 @@ async def note_played(
     channel: Optional[str] = None,
     autoplayed: bool = False,
     extra_text: Optional[str] = None,
+    duration=None,
 ) -> None:
     """Jab bhi koi gaana BAJE (user ka lagaya ya autoplay) ye call karo.
 
@@ -638,7 +926,14 @@ async def note_played(
     """
     chat_id = int(chat_id)
     items = await _load_played(chat_id)
-    items.append({"id": str(vid or ""), "key": title_key(title), "ts": int(time.time())})
+    items.append({
+        "id": str(vid or ""),
+        "key": title_key(title),
+        "toks": core_tokens(title, channel),
+        "title": (title or "")[:120],
+        "dur": parse_duration(duration),
+        "ts": int(time.time()),
+    })
     del items[:-MAX_PLAYED]
     try:
         await playeddb.update_one({"chat_id": chat_id}, {"$set": {"items": items}}, upsert=True)
@@ -657,6 +952,12 @@ async def note_played(
             or dominant_mood(extra_text)
             or dominant_mood(title, soft=True)
             or ctx.get("query_mood")
+        )
+        # seed ki language -- aage ka sara autoplay isi language mein
+        # kuch na pata chale to Hindi maano (Claude key ho to wo baad mein sahi kar deta hai).
+        # Isse Hindi seed par Bhojpuri/Marathi/Punjabi ke pakke-pehchane gaane nahi aate.
+        upd["lang"] = (
+            detect_language(title, channel, extra_text) or ctx.get("query_lang") or "hindi"
         )
     ctx.update(upd)
     ctx.pop("song_type", None)      # purane gaane ka type hata do
@@ -792,33 +1093,58 @@ async def _apply_song_type(chat_id: int, vid: str, title, channel, extra_text) -
     ctx = await get_context(chat_id)
     if not ctx or ctx.get("seed_vid") != vid or ctx.get("kind") not in ("song", "pending"):
         return  # tab tak user ne doosra gaana laga diya
+    llm_lang = normalize_lang(info.get("language"))
     upd = {
         "mood": info["mood"],
         "song_type": {"mood": info["mood"], "language": info["language"], "genre": info["genre"]},
         "type_queries": info.get("queries", []),
     }
+    if llm_lang:
+        upd["lang"] = llm_lang                    # Claude ki pehchaan local guess se behtar
     ctx.update(upd)
     _CACHE[chat_id] = ctx
     await contextdb.update_one({"chat_id": chat_id}, {"$set": upd})
     LOGGER.info("Song type | chat_id=%s | %r -> %s", chat_id, title, upd["song_type"])
 
 
-async def _verify_same_type(ctx: dict, cands: List[dict]) -> Optional[List[int]]:
-    """Claude se pucho: in candidates mein se kaun seed jaisa hai (mood+language+vibe)?
+async def _verify_candidates(
+    ctx: dict, cands: List[dict], recent: List[str]
+) -> Optional[List[int]]:
+    """Claude se pucho: kaun se candidates theek hain?
+      * pehle baj chuke gaane ka koi bhi re-upload / version / alag title wording NAHI
+      * song mode mein: seed jaisa type (mood + language + vibe)
     Return: indices best-first ([] = koi nahi), None = LLM available nahi / fail."""
     st = ctx.get("song_type")
-    if not st or not cands or not llm_enabled():
+    if not cands or not llm_enabled() or not (st or recent):
         return None
     lines = "\n".join(
-        f"{i}. {c.get('title')} | {_channel_name(c) or '-'}" for i, c in enumerate(cands)
+        f"{i}. {c.get('title')} | {_channel_name(c) or '-'} | {_result_duration(c) or '?'}s"
+        for i, c in enumerate(cands)
     )
-    user = (
-        f"Seed song: {ctx.get('seed_title')}\n"
-        f"Seed type: mood={st.get('mood')}, language={st.get('language')}, genre={st.get('genre')}\n\n"
-        f"Candidates:\n{lines}\n\n"
-        f"Return ONLY a JSON array of candidate numbers that are the SAME type as the seed "
-        f"(same mood, same language, similar vibe), best match first. Exclude compilations/jukeboxes, "
-        f"covers of the seed itself, and songs of a different mood or language. [] if none fit."
+    rules = []
+    user = ""
+    if recent:
+        user += "Recently played songs (already heard):\n" + "\n".join(f"- {t}" for t in recent) + "\n\n"
+        rules.append(
+            "EXCLUDE any candidate that is the SAME SONG as a recently played one, even if it is a "
+            "different upload, channel, thumbnail, title wording, lyrics/audio/video/remix/slowed label"
+        )
+    if st:
+        user += (
+            f"Seed song: {ctx.get('seed_title')}\n"
+            f"Seed type: mood={st.get('mood')}, language={st.get('language')}, genre={st.get('genre')}\n\n"
+        )
+        rules.append(
+            "KEEP only candidates of the SAME type as the seed (same mood, similar vibe). "
+            "LANGUAGE IS A HARD LOCK: only songs in the seed's exact language "
+            f"({st.get('language')}); e.g. a Bhojpuri seed must never get Hindi, Marathi, Punjabi or any "
+            "other language, and a Hindi seed must never get Bhojpuri etc. "
+            "Exclude compilations/jukeboxes and songs of a different mood or language"
+        )
+    user += f"Candidates:\n{lines}\n\n"
+    user += (
+        "Return ONLY a JSON array of acceptable candidate numbers, best match first, [] if none. Rules: "
+        + "; ".join(rules) + "."
     )
     arr = _json_from(await _call_llm(_CLASSIFY_SYSTEM, user, 120), "[", "]")
     if not isinstance(arr, list):
@@ -854,6 +1180,7 @@ async def fetch_mix(vid: str, limit: int = 30) -> List[dict]:
         for e in info.get("entries") or []:
             if e and e.get("id"):
                 out.append({"id": e["id"], "title": e.get("title"),
+                            "duration": e.get("duration"),
                             "channel": {"name": e.get("channel") or e.get("uploader")}})
         return out
 
@@ -885,6 +1212,9 @@ async def autoplay_query(chat_id: int, ctx: Optional[dict] = None, attempt: int 
             variants += [f"{seed} similar songs", f"songs like {seed}", f"{seed} jaise gaane"]
         if mood:
             variants += MOOD_SEARCH.get(mood) or [f"{mood} songs"]
+        lg = ctx.get("lang")
+        if lg:   # har query mein language ka naam -> YouTube results usi language ke
+            variants = [v if lg in v.lower() else f"{lg} {v}" for v in variants]
         if variants:
             # seed wale pehle (attempt 0,1,2), uske baad mood wale; played_n se rotate
             idx = attempt if attempt < len(variants) else attempt + played_n
@@ -896,6 +1226,8 @@ async def autoplay_query(chat_id: int, ctx: Optional[dict] = None, attempt: int 
     extras = ["", " new", " best", " hits", " old", " latest", " top"]
     if mood and mood not in base:
         base = f"{mood} {base}"
+    if ctx.get("lang") and ctx["lang"] not in base.lower():
+        base = f"{ctx['lang']} {base}"
     return (base + extras[(played_n + attempt) % len(extras)]).strip()
 
 
@@ -906,7 +1238,8 @@ async def pick_next(chat_id: int, candidates: List[dict]) -> Optional[dict]:
       1. pehle bajaa hua gaana (ya uska lyrics/official/remix version) NAHI
       2. artist mode -> usi artist ka; topic mode -> usi topic ka
       3. mood set hai to doosre mood ka NAHI (sad -> sad, romantic -> romantic)
-      4. song mode + ANTHROPIC_API_KEY: Claude check karta hai ki candidate seed jaisa
+      4. ANTHROPIC_API_KEY ho to Claude: re-upload wale repeat hataata hai, aur song mode mein
+         check karta hai ki candidate seed jaisa
          (mood + language + vibe) hai -- isse kisi bhi gaane ke liye same type chalta hai
     Kuch na mile to None -> autoplay_query(..., attempt+1) se dobara search karo.
     """
@@ -916,11 +1249,11 @@ async def pick_next(chat_id: int, candidates: List[dict]) -> Optional[dict]:
     mood = ctx.get("mood")
     played = await _load_played(chat_id)
 
-    hits: List[dict] = []
-    others: List[dict] = []
+    lang = ctx.get("lang") if kind in ("song", "pending", "topic") else None
+    tiers: List[List[dict]] = [[], [], [], []]   # lang+mood, lang, mood, baaki
     for r in candidates or []:
         title, ch, vid = r.get("title"), _channel_name(r), _vid(r)
-        if _is_played(played, vid, title):
+        if _is_played(played, vid, title, ch, _result_duration(r)):
             continue
         if kind == "artist" and not matches_core(ctx.get("core", ""), title, ch, ctx.get("aliases")):
             continue
@@ -928,16 +1261,26 @@ async def pick_next(chat_id: int, candidates: List[dict]) -> Optional[dict]:
             continue
         if not mood_ok(mood, title, ch):
             continue
-        (hits if (mood and mood_hit(mood, title, ch)) else others).append(r)
+        lm = language_match(lang, title, ch)
+        if lm < 0:
+            continue                      # doosri language -- kabhi nahi
+        if lang and lm == 0 and STRICT_LANG and lang != "hindi":
+            continue
+        mh = bool(mood and mood_hit(mood, title, ch))
+        lh = bool(lang and lm == 1)
+        tiers[0 if (lh and mh) else 1 if lh else 2 if mh else 3].append(r)
 
-    ordered = hits + others   # jinke title mein mood likha hai wo pehle
+    ordered = [r for t in tiers for r in t]   # pakki language + mood wale pehle
     if not ordered:
         return None
 
-    if kind in ("song", "pending") and ctx.get("song_type"):
-        idxs = await _verify_same_type(ctx, ordered[:10])
-        if idxs is not None:           # Claude ne jawab diya
-            return ordered[idxs[0]] if idxs else None
+    # Claude ka final check: repeat (re-upload bhi) + song mode mein same type
+    recent = [it.get("title") for it in played[-15:] if it.get("title")]
+    if kind not in ("song", "pending"):
+        ctx = {**ctx, "song_type": None}   # artist/topic mode mein sirf repeat check
+    idxs = await _verify_candidates(ctx, ordered[:10], recent)
+    if idxs is not None:                   # Claude ne jawab diya
+        return ordered[idxs[0]] if idxs else None
     return ordered[0]
 
 
@@ -984,6 +1327,7 @@ async def set_context_kind(chat_id: int, kind: str) -> None:
     if ctx and kind in ("artist", "topic"):
         # pending ke time pehle gaane se jo mood aaya tha wo artist/topic par lagu nahi
         upd["mood"] = ctx.get("query_mood")
+        upd["lang"] = ctx.get("query_lang") if kind == "topic" else None
     await contextdb.update_one({"chat_id": chat_id}, {"$set": upd})
     if chat_id in _CACHE:
         _CACHE[chat_id].update(upd)
