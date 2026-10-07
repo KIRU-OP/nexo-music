@@ -1,27 +1,3 @@
-"""
-Autoplay context DB  --  Vishal style
-=====================================
-
-`autoplay.py` (VishalMusic) ke database jaisa: saare data simple dicts mein,
-detect_* functions, normalize_title + fuzzy repeat check, smart queries aur
-score wala best-song picker.  Fark sirf itna: context aur played-history
-MongoDB mein save hoti hai (restart ke baad bhi yaad rahe).
-
-Ab `nexo.utils.autoplay_data` ki zaroorat NAHI -- sab kuch is file mein hai.
-Claude / ANTHROPIC_API_KEY bhi nahi chahiye.
-
-Collections:
-  autoplay_context : {"chat_id", "query", "title", "lang", "mood", "artist",
-                      "movie", "seed_vid", "updated"}
-  autoplay_played  : {"chat_id", "items": [{"id", "title", "artist", "ts"}]}
-
-Use:
-    await set_context(chat_id, "arijit singh sad songs")   # user ne search kiya
-    await note_played(chat_id, vid, title)                  # user ka gaana baja
-    song = await next_autoplay_song(chat_id, search_fn)     # agla gaana
-    # search_fn: async def search_fn(query) -> [{"id","title","duration","channel"}]
-"""
-
 import asyncio
 import logging
 import random
@@ -48,7 +24,7 @@ _LOCKS: Dict[int, asyncio.Lock] = {}
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  DATABASE (Vishal wale dicts)
+#  DATABASE (nexo wale dicts)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 DEVOTIONAL_WORDS = [
