@@ -14,6 +14,9 @@ Fark v1 se:
     singer ke gaane nahi aate), aur artist mode mein doosre artist ka gaana kabhi nahi aata.
   * Jo artist list mein nahi, wo YouTube se pehchana jata hai aur DB mein seekh liya jata hai.
 
+v2.4: AUTO RE-SEARCH -- gaana repeat nikla to khud naya search karta hai jab tak fresh gaana na mile
+  (next_autoplay_song / ensure_fresh). Race (do autoplay ek saath) se bhi repeat nahi hota.
+
 v2.3: LANGUAGE LOCK -- Bhojpuri lagaya to Bhojpuri hi, Hindi to Hindi, Marathi to Marathi...
   Doosri language ka gaana kabhi nahi (dekho detect_language / language_match / pick_next).
 
@@ -926,14 +929,15 @@ async def note_played(
     """
     chat_id = int(chat_id)
     items = await _load_played(chat_id)
-    items.append({
-        "id": str(vid or ""),
-        "key": title_key(title),
-        "toks": core_tokens(title, channel),
-        "title": (title or "")[:120],
-        "dur": parse_duration(duration),
-        "ts": int(time.time()),
-    })
+    if not (vid and items and items[-1].get("id") == str(vid)):   # reserve ho chuka ho to dobara mat jodo
+        items.append({
+            "id": str(vid or ""),
+            "key": title_key(title),
+            "toks": core_tokens(title, channel),
+            "title": (title or "")[:120],
+            "dur": parse_duration(duration),
+            "ts": int(time.time()),
+        })
     del items[:-MAX_PLAYED]
     try:
         await playeddb.update_one({"chat_id": chat_id}, {"$set": {"items": items}}, upsert=True)
@@ -942,6 +946,7 @@ async def note_played(
 
     if autoplayed:
         return  # autoplay se seed / mood kabhi nahi badalta (drift nahi hoga)
+    _QSTART.pop(chat_id, None)   # naya seed -> search wapas shuru se
     ctx = await get_context(chat_id)
     if not ctx:
         return
@@ -1191,44 +1196,51 @@ async def fetch_mix(vid: str, limit: int = 30) -> List[dict]:
         return []
 
 
-async def autoplay_query(chat_id: int, ctx: Optional[dict] = None, attempt: int = 0) -> Optional[str]:
-    """Autoplay ke liye YouTube search query. attempt badhao (0,1,2...) agar
-    pick_next() ne None diya -- har attempt par alag query aati hai.
+_QUERY_SUFFIX = ["", "new", "old", "hits", "top", "latest", "best", "superhit", "2024", "2023", "2022"]
 
-    Song mode: pehle seed gaane ke related ("tu hai kahan similar songs"),
-    phir mood wale variants."""
+
+async def autoplay_query(chat_id: int, ctx: Optional[dict] = None, attempt: int = 0) -> Optional[str]:
+    """Autoplay ke liye YouTube search query. attempt badhao (0,1,2...) -- har attempt
+    par HAMESHA alag query aati hai (variants khatam hon to 'new/old/hits/2024...' jodta hai).
+
+    Song mode: pehle Claude ki type-queries / seed ke related, phir mood wale variants."""
     chat_id = int(chat_id)
     ctx = ctx or await get_context(chat_id)
     if not ctx:
         return None
-    played_n = len(await _load_played(chat_id))
     mood = ctx.get("mood")
     kind = ctx.get("kind")
+    lg = ctx.get("lang")
 
+    variants: List[str] = []
     if kind in ("song", "pending"):
         seed = (ctx.get("seed_title") or ctx.get("core") or "").strip()
-        variants: List[str] = list(ctx.get("type_queries") or [])   # Claude ke banaye, gaane ke type wale
+        variants = list(ctx.get("type_queries") or [])   # Claude ke banaye, gaane ke type wale
         if seed:
             variants += [f"{seed} similar songs", f"songs like {seed}", f"{seed} jaise gaane"]
         if mood:
             variants += MOOD_SEARCH.get(mood) or [f"{mood} songs"]
-        lg = ctx.get("lang")
-        if lg:   # har query mein language ka naam -> YouTube results usi language ke
-            variants = [v if lg in v.lower() else f"{lg} {v}" for v in variants]
-        if variants:
-            # seed wale pehle (attempt 0,1,2), uske baad mood wale; played_n se rotate
-            idx = attempt if attempt < len(variants) else attempt + played_n
-            return variants[idx % len(variants)]
+    if not variants:
+        base = ctx.get("search") or ""
+        if not base:
+            return None
+        if mood and mood not in base:
+            base = f"{mood} {base}"
+        variants = [base]
+    if lg:   # har query mein usi language ka naam (doosri language ka shabd hata ke)
+        fixed: List[str] = []
+        for v in variants:
+            v = " ".join(w for w in v.split() if LANG_NAMES.get(w.lower(), lg) == lg)
+            v = v if lg in v.lower() else f"{lg} {v}"
+            if v not in fixed:
+                fixed.append(v)
+        variants = fixed
 
-    base = ctx.get("search") or ""
-    if not base:
-        return None
-    extras = ["", " new", " best", " hits", " old", " latest", " top"]
-    if mood and mood not in base:
-        base = f"{mood} {base}"
-    if ctx.get("lang") and ctx["lang"] not in base.lower():
-        base = f"{ctx['lang']} {base}"
-    return (base + extras[(played_n + attempt) % len(extras)]).strip()
+    n = len(variants)
+    rnd = attempt // n                       # kitni baar poori list ghoom chuki
+    q = variants[attempt % n]
+    suf = _QUERY_SUFFIX[rnd % len(_QUERY_SUFFIX)]
+    return f"{q} {suf}".strip()
 
 
 async def pick_next(chat_id: int, candidates: List[dict]) -> Optional[dict]:
@@ -1251,9 +1263,11 @@ async def pick_next(chat_id: int, candidates: List[dict]) -> Optional[dict]:
 
     lang = ctx.get("lang") if kind in ("song", "pending", "topic") else None
     tiers: List[List[dict]] = [[], [], [], []]   # lang+mood, lang, mood, baaki
+    repeats = 0
     for r in candidates or []:
         title, ch, vid = r.get("title"), _channel_name(r), _vid(r)
         if _is_played(played, vid, title, ch, _result_duration(r)):
+            repeats += 1
             continue
         if kind == "artist" and not matches_core(ctx.get("core", ""), title, ch, ctx.get("aliases")):
             continue
@@ -1270,6 +1284,8 @@ async def pick_next(chat_id: int, candidates: List[dict]) -> Optional[dict]:
         lh = bool(lang and lm == 1)
         tiers[0 if (lh and mh) else 1 if lh else 2 if mh else 3].append(r)
 
+    if repeats:
+        LOGGER.info("Autoplay repeat skipped | chat_id=%s | %d/%d candidates", chat_id, repeats, len(candidates or []))
     ordered = [r for t in tiers for r in t]   # pakki language + mood wale pehle
     if not ordered:
         return None
@@ -1282,6 +1298,90 @@ async def pick_next(chat_id: int, candidates: List[dict]) -> Optional[dict]:
     if idxs is not None:                   # Claude ne jawab diya
         return ordered[idxs[0]] if idxs else None
     return ordered[0]
+
+
+# =====================================================================
+# AUTO RE-SEARCH  (repeat mila to khud naya search -- jab tak fresh gaana na mile)
+# =====================================================================
+_QSTART: Dict[int, int] = {}              # chat -> kis query attempt se shuru karein (purani queries khatam)
+_LOCKS: Dict[int, "asyncio.Lock"] = {}    # ek chat mein ek waqt par ek hi autoplay pick
+
+
+async def _reserve(chat_id: int, song: dict) -> None:
+    """Chuna hua gaana turant history mein daal do -- doosra autoplay ek saath chale to
+    wahi gaana dobara na chune. (Seed/mood nahi badalta.)"""
+    await note_played(
+        chat_id, _vid(song), song.get("title"), _channel_name(song),
+        autoplayed=True, duration=_result_duration(song),
+    )
+
+
+async def next_autoplay_song(
+    chat_id: int,
+    search_fn,
+    max_attempts: int = 12,
+    use_mix: bool = True,
+    reserve: bool = True,
+) -> Optional[dict]:
+    """Agla FRESH gaana. Repeat ya galat language/mood mila to apne aap naya search karta hai.
+
+    search_fn: async def search_fn(query: str) -> List[dict]   (aapka YouTube search;
+               har dict mein id, title, channel, duration)
+    Flow:  YouTube Mix -> query attempt 0 -> 1 -> 2 ... (har baar alag query)
+    reserve=True: chuna hua gaana turant history mein; baad mein
+                  note_played(..., autoplayed=True) call karna zaroori nahi.
+    None = max_attempts mein bhi fresh gaana nahi mila (caller autoplay band kare / bataye).
+    """
+    chat_id = int(chat_id)
+    lock = _LOCKS.setdefault(chat_id, asyncio.Lock())
+    async with lock:
+        ctx = await get_context(chat_id)
+        if not ctx:
+            return None
+
+        async def _done(song: dict, attempt: int) -> dict:
+            _QSTART[chat_id] = attempt
+            if reserve:
+                await _reserve(chat_id, song)
+            return song
+
+        if use_mix and ctx.get("kind") in ("song", "pending") and ctx.get("seed_vid"):
+            song = await pick_next(chat_id, await fetch_mix(ctx["seed_vid"]))
+            if song:
+                return await _done(song, _QSTART.get(chat_id, 0))
+
+        start = _QSTART.get(chat_id, 0)
+        tried: set = set()
+        for k in range(max_attempts):
+            attempt = start + k
+            q = await autoplay_query(chat_id, ctx, attempt)
+            if not q or q in tried:
+                continue
+            tried.add(q)
+            try:
+                results = await search_fn(q)
+            except Exception as err:
+                LOGGER.warning("autoplay search failed (%r): %s", q, err)
+                continue
+            song = await pick_next(chat_id, results or [])
+            if song:
+                LOGGER.info("Autoplay fresh | chat_id=%s | attempt=%d | q=%r | %r",
+                            chat_id, attempt, q, song.get("title"))
+                return await _done(song, attempt)
+            LOGGER.info("Autoplay re-search | chat_id=%s | q=%r -> repeat/mismatch, naya search", chat_id, q)
+        LOGGER.warning("Autoplay: %d attempts mein fresh gaana nahi mila | chat_id=%s", max_attempts, chat_id)
+        return None
+
+
+async def ensure_fresh(chat_id: int, song: dict, search_fn, **kw) -> Optional[dict]:
+    """Aakhri safety net: bajane se THEEK PEHLE call karo, kisi bhi raaste se gaana aaya ho.
+    Repeat nikla to apne aap naya search karke fresh gaana deta hai; fresh hai to wahi lauta deta hai."""
+    chat_id = int(chat_id)
+    played = await _load_played(chat_id)
+    if not _is_played(played, _vid(song), song.get("title"), _channel_name(song), _result_duration(song)):
+        return song
+    LOGGER.info("Autoplay repeat pakda (ensure_fresh) | chat_id=%s | %r -> naya search", chat_id, song.get("title"))
+    return await next_autoplay_song(chat_id, search_fn, **kw)
 
 
 # =====================================================================
