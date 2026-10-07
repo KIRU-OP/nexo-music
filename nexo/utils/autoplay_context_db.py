@@ -14,6 +14,10 @@ Fark v1 se:
     singer ke gaane nahi aate), aur artist mode mein doosre artist ka gaana kabhi nahi aata.
   * Jo artist list mein nahi, wo YouTube se pehchana jata hai aur DB mein seekh liya jata hai.
 
+v2.5: LANGUAGE LOCK PAKKA -- Bhojpuri seed par jis gaane ki language pakki na ho wo bhi REJECT
+  (pehle sirf "pehchani hui doosri language" rejected thi, anjaan Hindi/English nikal jaate the).
+  Claude key ho to anjaan gaane verify hote hain; channel ki language yaad rehti hai; English pehchan.
+
 v2.4: AUTO RE-SEARCH -- gaana repeat nikla to khud naya search karta hai jab tak fresh gaana na mile
   (next_autoplay_song / ensure_fresh). Race (do autoplay ek saath) se bhi repeat nahi hota.
 
@@ -72,6 +76,7 @@ contextdb = mongodb.autoplay_context
 artistsdb = mongodb.autoplay_artists
 playeddb = mongodb.autoplay_played
 typesdb = mongodb.autoplay_song_types
+chanlangdb = mongodb.autoplay_channel_langs
 
 _CACHE: dict = {}  # chat_id -> context
 
@@ -571,7 +576,7 @@ def mood_hit(mood: Optional[str], title: Optional[str], channel: Optional[str] =
 # LANGUAGE LOCK  (Bhojpuri -> Bhojpuri, Hindi -> Hindi, Marathi -> Marathi ...)
 # =====================================================================
 LANG_NAMES = _LANG_KEYS
-STRICT_LANG = os.getenv("AUTOPLAY_STRICT_LANG", "0") == "1"   # 1 = jiski language pata na chale wo bhi reject
+STRICT_LANG = os.getenv("AUTOPLAY_STRICT_LANG", "1") == "1"   # 1 (default) = non-Hindi seed par anjaan-language gaana REJECT
 
 _SCRIPTS: List[Tuple["re.Pattern", str]] = [
     (re.compile(r"[\u0B80-\u0BFF]"), "tamil"),
@@ -589,7 +594,8 @@ _SCRIPTS: List[Tuple["re.Pattern", str]] = [
 # Hindi wo hai jo baaki sab nahi (ya jab naam/artist/Claude bataye).
 _LANG_MARKERS: Dict[str, set] = {
     "bhojpuri": {"hamar", "hamaar", "hamra", "tohar", "tohaar", "tohra", "tohre", "bhauji", "bhatar",
-                 "bhatara", "lagelu", "lagela", "kailu", "kaile", "raua", "rauwa",
+                 "bhatara", "lagelu", "lagela", "kailu", "kaile", "raua", "rauwa", "piyawa", "piyava",
+                 "sajanwa", "balamua", "rajaji", "lagaiba", "hamse", "tohse", "lagelee", "bhojpuriya",
                  "हमार", "तोहार", "तोहरा", "भउजी", "भतार", "लागेला", "रउवा"},
     "marathi": {"ahe", "aahe", "majhi", "majhya", "mazi", "mazya", "tujhi", "tujhya", "tuzi", "tuzya",
                 "tula", "aamhi", "amhi", "zingaat", "zingat", "lavani", "lavni", "mauli", "aaicha",
@@ -600,6 +606,60 @@ _LANG_MARKERS: Dict[str, set] = {
     "rajasthani": {"rajasthani", "padharo", "mhare", "mhari", "thare", "ghoomar"},
     "gujarati": {"garba", "gujarati"},
 }
+
+
+# English gaano ke title mein aam shabd (Hinglish titles mein kam aate hain). 2+ mile to English.
+_EN_WORDS = {
+    "the", "you", "your", "are", "was", "with", "and", "for", "this", "that", "not", "all", "just",
+    "feel", "know", "want", "dont", "cant", "wanna", "gonna", "girl", "night", "sorry", "never",
+    "ever", "after", "before", "without", "better", "world", "life", "heart", "dancing", "remember",
+    "again", "forever", "always", "story", "somebody", "something", "nobody", "stay", "home",
+}
+
+# ---- channel ki language yaad rakho (Wave Music jaise multi-language channel ke liye share dekhta hai)
+_CHAN_STATS: Dict[str, Dict[str, int]] = {}
+_CHAN_LOADED = False
+
+
+def _chan_key(channel: Optional[str]) -> str:
+    return _norm(_roman(channel))
+
+
+def _chan_lang(channel: Optional[str]) -> Optional[str]:
+    st = _CHAN_STATS.get(_chan_key(channel))
+    if not st:
+        return None
+    total = sum(st.values())
+    lg, n = max(st.items(), key=lambda kv: kv[1])
+    return lg if total >= 2 and n / total >= 0.8 else None
+
+
+async def warm_channel_langs() -> None:
+    """Ek baar DB se channel->language yaadasht memory mein lao (idempotent)."""
+    global _CHAN_LOADED
+    if _CHAN_LOADED:
+        return
+    _CHAN_LOADED = True
+    try:
+        async for doc in chanlangdb.find({}):
+            if doc.get("key") and doc.get("counts"):
+                _CHAN_STATS[doc["key"]] = dict(doc["counts"])
+    except Exception as err:
+        LOGGER.warning("warm_channel_langs failed: %s", err)
+
+
+async def learn_channel_language(channel: Optional[str], lang: Optional[str]) -> None:
+    """Pakki language wale gaane ka channel yaad rakho -> uske aage ke gaane pehchane jaayenge."""
+    key = _chan_key(channel)
+    lg = normalize_lang(lang)
+    if not key or not lg:
+        return
+    st = _CHAN_STATS.setdefault(key, {})
+    st[lg] = st.get(lg, 0) + 1
+    try:
+        await chanlangdb.update_one({"key": key}, {"$set": {"key": key, "counts": st}}, upsert=True)
+    except Exception as err:
+        LOGGER.warning("learn_channel_language failed: %s", err)
 
 
 def normalize_lang(x: Optional[str]) -> Optional[str]:
@@ -617,7 +677,10 @@ def explicit_language(text: Optional[str]) -> Optional[str]:
 
 
 def detect_language(
-    title: Optional[str], channel: Optional[str] = None, extra_text: Optional[str] = None
+    title: Optional[str],
+    channel: Optional[str] = None,
+    extra_text: Optional[str] = None,
+    use_channel_memory: bool = True,
 ) -> Optional[str]:
     """Gaane ki language (bina Claude ke). Signals: language ka naam > script > artist > khaas shabd.
     Pakka na ho to None (zabardasti Hindi nahi maante)."""
@@ -645,6 +708,12 @@ def detect_language(
         pass
     for lg, marks in _LANG_MARKERS.items():
         add(lg, min(len(raw_toks & marks), 3))
+    if len(set(_norm(_roman(t_raw)).split()) & _EN_WORDS) >= 2 and not any(
+        rx.search(t_raw) for rx, _ in _SCRIPTS
+    ):
+        add("english", 3)
+    if use_channel_memory:
+        add(_chan_lang(channel), 3)
 
     if not scores:
         return None
@@ -1112,6 +1181,42 @@ async def _apply_song_type(chat_id: int, vid: str, title, channel, extra_text) -
     LOGGER.info("Song type | chat_id=%s | %r -> %s", chat_id, title, upd["song_type"])
 
 
+_LANGV_CACHE: Dict[Tuple[str, str], bool] = {}
+
+
+async def verify_language(lang: Optional[str], cands: List[dict]) -> Optional[set]:
+    """Claude se: in gaano mein se kaun SACH MEIN `lang` language ke hain.
+    Return: pass hue indices ka set; None = Claude available nahi / fail (caller reject kare)."""
+    if not lang or not cands or not llm_enabled():
+        return None
+    ok: set = set()
+    todo: List[int] = []
+    for i, c in enumerate(cands):
+        k = (title_key(c.get("title")), lang)
+        if k in _LANGV_CACHE:
+            if _LANGV_CACHE[k]:
+                ok.add(i)
+        else:
+            todo.append(i)
+    if todo:
+        lines = "\n".join(f"{i}. {cands[i].get('title')} | {_channel_name(cands[i]) or '-'}" for i in todo)
+        user = (
+            f"Which of these songs are sung in the {lang.title()} language? Judge by title, channel and your "
+            f"knowledge of the song. If a song is Hindi, English, Marathi, Punjabi, Haryanvi, or any language other "
+            f"than {lang.title()}, or you are unsure, EXCLUDE it.\n\n{lines}\n\n"
+            f"Return ONLY a JSON array of the numbers that are {lang.title()}."
+        )
+        arr = _json_from(await _call_llm(_CLASSIFY_SYSTEM, user, 150), "[", "]")
+        if not isinstance(arr, list):
+            return None
+        good = {i for i in arr if isinstance(i, int)}
+        for i in todo:
+            _LANGV_CACHE[(title_key(cands[i].get("title")), lang)] = i in good
+            if i in good:
+                ok.add(i)
+    return ok
+
+
 async def _verify_candidates(
     ctx: dict, cands: List[dict], recent: List[str]
 ) -> Optional[List[int]]:
@@ -1263,6 +1368,7 @@ async def pick_next(chat_id: int, candidates: List[dict]) -> Optional[dict]:
 
     lang = ctx.get("lang") if kind in ("song", "pending", "topic") else None
     tiers: List[List[dict]] = [[], [], [], []]   # lang+mood, lang, mood, baaki
+    unknown: List[dict] = []                      # language pata nahi -> Claude verify (strict mode)
     repeats = 0
     for r in candidates or []:
         title, ch, vid = r.get("title"), _channel_name(r), _vid(r)
@@ -1279,11 +1385,19 @@ async def pick_next(chat_id: int, candidates: List[dict]) -> Optional[dict]:
         if lm < 0:
             continue                      # doosri language -- kabhi nahi
         if lang and lm == 0 and STRICT_LANG and lang != "hindi":
+            unknown.append(r)             # pakka nahi -> bina verify ke nahi chalega
             continue
         mh = bool(mood and mood_hit(mood, title, ch))
         lh = bool(lang and lm == 1)
         tiers[0 if (lh and mh) else 1 if lh else 2 if mh else 3].append(r)
 
+    if unknown and lang:
+        okset = await verify_language(lang, unknown[:15])
+        for i in sorted(okset or []):
+            r = unknown[i]
+            mh = bool(mood and mood_hit(mood, r.get("title"), _channel_name(r)))
+            tiers[0 if mh else 1].append(r)
+            await learn_channel_language(_channel_name(r), lang)   # LLM ne confirm kiya -> channel yaad
     if repeats:
         LOGGER.info("Autoplay repeat skipped | chat_id=%s | %d/%d candidates", chat_id, repeats, len(candidates or []))
     ordered = [r for t in tiers for r in t]   # pakki language + mood wale pehle
