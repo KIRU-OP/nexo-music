@@ -417,7 +417,9 @@ async def is_repeat(chat_id: int, vidid: str, title: str = "") -> bool:
     return False
 
 
-has_played = is_repeat   # purana naam
+async def has_played(chat_id, vid, title=None, channel=None, duration=None) -> bool:
+    """Purana naam / purani signature (channel, duration ignore hote hain)."""
+    return await is_repeat(chat_id, str(vid or ""), title or "")
 
 
 async def add_recent(chat_id: int, vidid: str, title: str = "", artist: str = "") -> None:
@@ -680,6 +682,7 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
 async def next_autoplay_song(
     chat_id: int, search_fn, max_queries: int = 12, batch: int = 3,
     reserve: bool = True, limit: int = 8,
+    max_attempts: Optional[int] = None, use_mix: Optional[bool] = None,   # purane kwargs (ignore/alias)
 ) -> Optional[dict]:
     """Agla FRESH gaana.  search_fn: async def search_fn(query) -> [result dict]
     (result mein id, title, duration, channel).  Queries 3-3 ke batch mein chalti hain,
@@ -687,6 +690,8 @@ async def next_autoplay_song(
     reserve=True: chuna gaana turant history mein (do autoplay ek saath => repeat nahi).
     None = fresh gaana nahi mila."""
     chat_id = int(chat_id)
+    if max_attempts:
+        max_queries = max_attempts
     lock = _LOCKS.setdefault(chat_id, asyncio.Lock())
     async with lock:
         ctx = await get_context(chat_id)
@@ -724,3 +729,160 @@ async def ensure_fresh(chat_id: int, song: dict, search_fn, **kw) -> Optional[di
     if not await is_repeat(int(chat_id), _vid(song), song.get("title") or ""):
         return song
     return await next_autoplay_song(chat_id, search_fn, **kw)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  COMPATIBILITY  (Youtube.py / purane callers ke import na tootein)
+#  Naam purane module wale, logic Vishal wala simple.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STRICT_LANG = False        # Vishal ki tarah: sirf KNOWN galat language reject, anjaan pass
+_EMOTION_MOODS = ("sad", "love", "party", "devotional", "wedding", "sufi")
+
+
+def llm_enabled() -> bool:
+    return False
+
+
+def normalize_lang(x: Optional[str]) -> Optional[str]:
+    """'Bhojpuri' / 'hindi/urdu' -> 'bhojpuri' / 'hindi'."""
+    for w in _norm(x).split():
+        if w in LANG_DB:
+            return w
+        if w in ("bangla",):
+            return "bengali"
+        if w in ("bollywood", "hinglish"):
+            return "hindi"
+    return None
+
+
+def _lang_hint(title: Optional[str], channel: Optional[str] = None) -> Optional[str]:
+    """Title/channel se language, pakki na ho to None (detect_lang jaisa, bina default hindi ke)."""
+    text = f"{title or ''} {channel or ''}"
+    for lang, keys in LANG_DB.items():
+        if lang != "hindi" and _has_any(keys, text):
+            return lang
+    for lang, artists in ARTIST_LANG.items():
+        if _has_any(artists, text):
+            return lang
+    return _detect_title_lang(_norm(text)) or ("hindi" if _has_any(LANG_DB["hindi"], text) else None)
+
+
+def detect_language(title, channel=None, extra_text=None, use_channel_memory=True) -> Optional[str]:
+    return _lang_hint(title, channel)
+
+
+def language_match(lang: Optional[str], title, channel=None) -> int:
+    """1 = wahi language, 0 = pata nahi, -1 = INCOMPATIBLE_LANGS wali galat language."""
+    if not lang:
+        return 1
+    hint = _lang_hint(title, channel)
+    if hint is None:
+        return 0
+    if hint == lang:
+        return 1
+    return -1 if hint in INCOMPATIBLE_LANGS.get(lang, []) else 0
+
+
+def _moods_in(text: Optional[str]) -> set:
+    return {m for m, keys in MOOD_DB.items() if _has_any(keys, text)}
+
+
+def dominant_mood(text: Optional[str], soft: bool = False) -> Optional[str]:
+    m = detect_mood(text or "")
+    return None if m == "normal" else m
+
+
+def mood_ok(mood, title, channel=None) -> bool:
+    """Doosre emotion ka gaana reject (sad seed par party/love nahi). Mood na ho to sab pass."""
+    if not mood or mood == "normal":
+        return True
+    found = _moods_in(f"{title or ''} {channel or ''}") & set(_EMOTION_MOODS)
+    return not found or mood in found
+
+
+def mood_hit(mood, title, channel=None) -> bool:
+    return bool(mood) and mood != "normal" and mood in _moods_in(f"{title or ''} {channel or ''}")
+
+
+def matches_core(core: str, title, channel=None, aliases=None) -> bool:
+    """Title/channel mein artist ka naam (ya alias) hai?"""
+    if not core:
+        return True
+    hay = _norm(f"{title or ''} {channel or ''}")
+    return any(c and _has_any([_norm(c)], hay) for c in [core] + list(aliases or []))
+
+
+def matches_topic(ctx: dict, title, channel=None) -> bool:
+    hay = _norm(f"{title or ''} {channel or ''}")
+    if any(ex and ex in hay for ex in (ctx or {}).get("exclude") or []):
+        return False
+    req = (ctx or {}).get("require_any") or []
+    return not req or any(r in hay for r in req)
+
+
+def looks_like_artist(core: str, results: list, durations: list) -> bool:
+    return False            # Vishal mein artist/topic mode nahi -- hamesha song mode
+
+
+async def learn_artist(core: str) -> None:
+    return None             # Vishal ke dicts fixed hain; kuch seekhna nahi
+
+
+async def add_artist(name: str, aliases=None, learned: bool = False) -> None:
+    n = _norm(name)
+    if n and n not in ARTIST_DB:
+        ARTIST_DB[n] = [n] + [_norm(a) for a in (aliases or []) if _norm(a)]
+
+
+async def add_artists_bulk(names: List[str]) -> int:
+    c = 0
+    for nm in names:
+        if _norm(nm) and _norm(nm) not in ARTIST_DB:
+            await add_artist(nm)
+            c += 1
+    return c
+
+
+async def load_learned_artists() -> int:
+    return 0
+
+
+def artist_count() -> int:
+    return len(ARTIST_DB)
+
+
+async def classify_song(*_a, **_k):
+    return None
+
+
+async def verify_language(*_a, **_k):
+    return None
+
+
+async def learn_channel_language(*_a, **_k) -> None:
+    return None
+
+
+async def warm_channel_langs() -> None:
+    return None
+
+
+async def set_context_kind(chat_id: int, kind: str) -> None:
+    await _save_context(int(chat_id), {"kind": kind})
+
+
+async def autoplay_query(chat_id: int, ctx: Optional[dict] = None, attempt: int = 0) -> Optional[str]:
+    """Purana API: attempt badhao to har baar alag query."""
+    ctx = ctx or await get_context(int(chat_id))
+    if not ctx:
+        return None
+    qs = build_smart_queries(
+        ctx.get("title") or ctx.get("query") or "", ctx.get("artist", ""), ctx.get("movie", ""),
+        ctx.get("lang", "hindi"), ctx.get("mood", "normal"), await recent_artists(int(chat_id)),
+    )
+    return qs[attempt % len(qs)] if qs else None
+
+
+async def fetch_mix(vid: str, limit: int = 30) -> List[dict]:
+    return []               # Vishal mein YouTube Mix nahi
