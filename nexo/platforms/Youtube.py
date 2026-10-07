@@ -32,6 +32,58 @@ from nexo.utils.autoplay_context_db import (
     matches_core,
     matches_topic,
 )
+try:   # language lock + mood (autoplay_context_db v2.3+). Purana module ho to bina lock ke chalta hai.
+    from nexo.utils.autoplay_context_db import (
+        STRICT_LANG as _STRICT_LANG,
+        classify_song,
+        detect_language,
+        dominant_mood,
+        language_match,
+        learn_channel_language,
+        llm_enabled,
+        mood_hit,
+        mood_ok,
+        normalize_lang,
+        verify_language,
+        warm_channel_langs,
+    )
+    _LANG_LOCK = True
+except ImportError:  # pragma: no cover
+    _LANG_LOCK = False
+    _STRICT_LANG = False
+
+    def detect_language(*_a, **_k):
+        return None
+
+    def dominant_mood(*_a, **_k):
+        return None
+
+    def language_match(*_a, **_k):
+        return 1
+
+    def mood_hit(*_a, **_k):
+        return False
+
+    def mood_ok(*_a, **_k):
+        return True
+
+    def normalize_lang(x):
+        return x
+
+    async def classify_song(*_a, **_k):
+        return None
+
+    async def verify_language(*_a, **_k):
+        return None
+
+    async def learn_channel_language(*_a, **_k):
+        return None
+
+    async def warm_channel_langs():
+        return None
+
+    def llm_enabled():
+        return False
 from nexo.utils.played_db import _same_song
 from config import DURATION_LIMIT, YT_API_KEY, YTPROXY_URL, autoclean
 
@@ -404,6 +456,7 @@ def _pick_newest(items: list, avoid_channel: Union[str, None] = None):
     best = min(
         enumerate(items),
         key=lambda p: (
+            p[1].get("_tier", (0, 0)),            # pakki language / mood match wale pehle
             _age_bucket(p[1].get("_age")),
             1 if (avoid_channel and p[1].get("_ch") == avoid_channel) else 0,
             p[0],
@@ -432,6 +485,7 @@ class YouTubeAPI:
         }
         self._background_cache_tasks = {}
         self._autoplay_channels = {}   # autoplay se chune gaane ka vidid -> channel (agla alag channel se)
+        self._learned_seeds = set()    # jin seed gaano se channel-language seekh chuke
 
     def _has_disallowed_url_chars(self, link: str) -> bool:
         return any(char in link for char in [";", "&", "|", "$", "\n", "\r", "`"])
@@ -677,11 +731,19 @@ class YouTubeAPI:
         title: str = "",
         max_duration: Union[int, None] = None,
         is_played=None,
+        ctx: Union[dict, None] = None,
+        lang: Union[str, None] = None,
+        mood: Union[str, None] = None,
+        channel: Union[str, None] = None,
+        extra_text: Union[str, None] = None,
     ) -> Union[dict, None]:
         """Jo gaana abhi baja uske jaisa DOOSRA gaana chuno (same gaana nahi).
 
         is_played: async (videoid, title, duration_sec) -> bool
                    True ho to wo gaana pehle baj chuka hai, skip hoga.
+        ctx      : autoplay_context_db.get_context(chat_id) -- isme seed ki "lang" aur "mood" hoti hain.
+                   Dene par seed ki language (Bhojpuri/Hindi/...) aur mood ka gaana hi aata hai.
+        lang/mood: ctx ke bina seedha de sakte ho. Kuch na do to title (+ channel) se khud pehchanta hai.
         """
         seed = {"v": str(videoid or ""), "t": title or "", "d": 0}
 
@@ -701,6 +763,63 @@ class YouTubeAPI:
                 logger.warning("Autoplay search failed for %s: %s", text, err)
                 return []
 
+        first_cache: dict = {}
+
+        async def get_first() -> list:
+            if "r" not in first_cache:
+                q = self._clean_autoplay_query(title)
+                first_cache["r"] = await search_page(q) if q else []
+            return first_cache["r"]
+
+        def seed_channel_from(first: list):
+            for r in first:
+                if r.get("id") == videoid and isinstance(r.get("channel"), dict):
+                    return r["channel"].get("name")
+            for r in first[:3]:
+                if isinstance(r.get("channel"), dict) and r["channel"].get("name"):
+                    return r["channel"]["name"]
+            return None
+
+        # --- seed ka profile: language + mood (isi ke hisaab se aage ke gaane) ---
+        c = ctx or {}
+        seed_lang = normalize_lang(lang) if lang else (c.get("lang") or None)
+        seed_mood = mood or c.get("mood") or None
+        if _LANG_LOCK:
+            await warm_channel_langs()
+            ch0 = channel
+            lang_given = bool(seed_lang)
+            if not seed_lang:
+                if not ch0:
+                    ch0 = seed_channel_from(await get_first())
+                seed_lang = detect_language(title, ch0, extra_text)
+                if not seed_lang and llm_enabled():
+                    # nishaan nahi mile -> Claude se pucho (Bhojpuri / Hindi / English ...)
+                    info = await classify_song(title, ch0, extra_text)
+                    seed_lang = normalize_lang((info or {}).get("language"))
+                    if info and not seed_mood:
+                        seed_mood = info.get("mood")
+                seed_lang = seed_lang or "hindi"      # kuch bhi pata na chale to Hindi
+            # pakki non-Hindi seed -> uska channel yaad (agli baar us channel ke gaane pehchane jaayenge)
+            if seed_lang and seed_lang != "hindi" and str(videoid) not in self._learned_seeds:
+                if ch0 is None:
+                    ch0 = channel or seed_channel_from(await get_first())
+                self._learned_seeds.add(str(videoid))      # ek gaane se ek hi baar seekho
+                if len(self._learned_seeds) > 2000:
+                    self._learned_seeds.clear()
+                try:
+                    await learn_channel_language(ch0, seed_lang)
+                except Exception:
+                    pass
+            if not seed_mood:
+                seed_mood = dominant_mood(title) or dominant_mood(title, soft=True)
+        logger.info("Autoplay seed profile | %r | lang=%s | mood=%s", title, seed_lang, seed_mood)
+
+        def lq(text: str) -> str:
+            """Query mein language ka naam (Bhojpuri songs -> Bhojpuri hi results)."""
+            if seed_lang and seed_lang not in text.lower():
+                return f"{seed_lang} {text}"
+            return text
+
         async def candidate_stream():
             # 1) YouTube ke related gaane (agar library support kare)
             if videoid and Recommendations is not None:
@@ -718,26 +837,22 @@ class YouTubeAPI:
             query = self._clean_autoplay_query(title)
             if not query:
                 return
-            first = await search_page(query)
-            channel_name = None
-            for r in first:
-                if r.get("id") == videoid and isinstance(r.get("channel"), dict):
-                    channel_name = r["channel"].get("name")
-                    break
-            if not channel_name:
-                for r in first[:3]:
-                    if isinstance(r.get("channel"), dict) and r["channel"].get("name"):
-                        channel_name = r["channel"]["name"]
-                        break
+            first = await get_first()
+            channel_name = seed_channel_from(first)
 
             for r in first:
                 yield r
             year = time.gmtime().tm_year
             extra = [
-                f"{query} similar songs",
-                f"songs like {query}",
-                f"new songs like {query}",
-                f"latest songs {year}",
+                lq(f"{query} similar songs"),
+                lq(f"songs like {query}"),
+            ]
+            if seed_mood:
+                extra.append(lq(f"{seed_mood} songs"))
+                extra.append(lq(f"new {seed_mood} songs {year}"))
+            extra += [
+                lq(f"new songs like {query}"),
+                lq(f"latest songs {year}"),
             ]
             if channel_name:
                 extra.append(f"{channel_name} new songs")
@@ -748,6 +863,7 @@ class YouTubeAPI:
         # Pool banao (naye wale milne tak), phir sabse NAYA aur pehle se ALAG gaana chuno
         seed_channel = self._autoplay_channels.get(str(videoid or ""))
         pool: list = []
+        unknown_pool: list = []
         picked_titles: list = []
         details_budget = 5            # candidate ki details alag se lani pade to itni hi baar
         seen = set()
@@ -803,6 +919,15 @@ class YouTubeAPI:
                 ):
                     logger.info("Autoplay skip (already played): %s", formatted["title"])
                     continue
+                # LANGUAGE LOCK: Bhojpuri seed par sirf Bhojpuri (Hindi/Marathi/English... kabhi nahi)
+                lm = language_match(seed_lang, formatted["title"], ch_name) if seed_lang else 1
+                if lm < 0:
+                    logger.info("Autoplay skip (language %s nahi): %s", seed_lang, formatted["title"])
+                    continue
+                # MOOD: doosre mood ka gaana nahi (sad -> sad, romantic -> romantic)
+                if seed_mood and not mood_ok(seed_mood, formatted["title"], ch_name):
+                    logger.info("Autoplay skip (mood %s nahi): %s", seed_mood, formatted["title"])
+                    continue
                 # pool ke andar bhi ek gaana ek hi baar (alag upload / lyrics version nahi)
                 if any(
                     _same_title(formatted["title"], t, formatted["duration_sec"], d)
@@ -813,6 +938,15 @@ class YouTubeAPI:
 
                 formatted["_age"] = age
                 formatted["_ch"] = ch_name
+                formatted["_tier"] = (
+                    0 if (seed_lang and lm == 1) else 1,
+                    0 if (seed_mood and mood_hit(seed_mood, formatted["title"], ch_name)) else 1,
+                )
+                # Language pakki nahi pehchani gayi (Hindi/English Roman title ho sakta hai):
+                # non-Hindi seed par bina verify ke nahi -> alag rakho, Claude se verify hoga
+                if seed_lang and lm == 0 and _STRICT_LANG and seed_lang != "hindi":
+                    unknown_pool.append(formatted)
+                    continue
                 pool.append(formatted)
 
                 has_new = any(_age_bucket(i.get("_age")) == 0 for i in pool)
@@ -824,6 +958,26 @@ class YouTubeAPI:
             except Exception:
                 pass
 
+        # anjaan-language candidates: Claude verify kare ki sach mein seed ki language ke hain
+        if unknown_pool and len(pool) < AUTOPLAY_POOL:
+            okset = await verify_language(
+                seed_lang,
+                [{"title": u["title"], "channel": {"name": u.get("_ch")}} for u in unknown_pool[:15]],
+            )
+            for i in sorted(okset or []):
+                u = unknown_pool[i]
+                u["_tier"] = (0, u["_tier"][1])
+                pool.append(u)
+                try:
+                    await learn_channel_language(u.get("_ch"), seed_lang)
+                except Exception:
+                    pass
+            if not okset:
+                logger.info(
+                    "Autoplay: %d anjaan-language gaane reject (%s lock; verify nahi hua)",
+                    len(unknown_pool), seed_lang,
+                )
+
         best_ch = None
         if pool:
             # _ch alag rakho (pick ke baad channel yaad rakhna hai)
@@ -834,8 +988,8 @@ class YouTubeAPI:
                     self._autoplay_channels.clear()
                 self._autoplay_channels[chosen["vidid"]] = best_ch
             logger.info(
-                "Autoplay pick (new-first): %s | pool=%d | age_days=%s",
-                chosen["title"], len(pool),
+                "Autoplay pick (new-first, lang=%s, mood=%s): %s | pool=%d | age_days=%s",
+                seed_lang, seed_mood, chosen["title"], len(pool),
                 next((i.get("_age") for i in pool if i["vidid"] == chosen["vidid"]), None),
             )
             return chosen
@@ -889,6 +1043,10 @@ class YouTubeAPI:
             else:
                 return None, "song"
 
+        # Language lock (topic mode: "bhojpuri songs") + mood ("sad songs" / artist ke saath likha mood)
+        ctx_lang = ctx.get("lang") if (_LANG_LOCK and kind != "artist") else None
+        ctx_mood = ctx.get("mood") if _LANG_LOCK else None
+
         # NAYE gaane pehle: "new / latest" queries sabse pehle, har query mein sabse naya upload
         if kind == "artist":
             queries = [
@@ -906,6 +1064,7 @@ class YouTubeAPI:
         for text in queries:
             results = first if text == base_search else await fetch(text)
             valid: list = []
+            unk: list = []
             for r in results:
                 vid = r.get("id")
                 if not vid or vid in seen:
@@ -922,6 +1081,13 @@ class YouTubeAPI:
                 elif not matches_topic(ctx, title, ch_name):
                     continue  # topic se bahar (ya namesake artist), skip
 
+                lm = language_match(ctx_lang, title, ch_name) if ctx_lang else 1
+                if lm < 0:
+                    continue  # doosri language ka gaana
+                needs_verify = bool(ctx_lang and lm == 0 and _STRICT_LANG and ctx_lang != "hindi")
+                if ctx_mood and not mood_ok(ctx_mood, title, ch_name):
+                    continue  # doosre mood ka gaana
+
                 formatted = self._format_autoplay_candidate(r, current_videoid, max_duration)
                 if not formatted:
                     continue
@@ -937,7 +1103,22 @@ class YouTubeAPI:
                     continue
                 formatted["_age"] = _age_days(r.get("publishedTime"))
                 formatted["_ch"] = ch_name
+                formatted["_tier"] = (
+                    0 if (ctx_lang and lm == 1) else 1,
+                    0 if (ctx_mood and mood_hit(ctx_mood, title, ch_name)) else 1,
+                )
+                if needs_verify:
+                    unk.append(formatted)
+                    continue
                 valid.append(formatted)
+
+            if unk and not valid:   # pakki language wala nahi mila -> anjaan wale Claude se verify
+                okset = await verify_language(
+                    ctx_lang, [{"title": u["title"], "channel": {"name": u.get("_ch")}} for u in unk[:15]]
+                )
+                for i in sorted(okset or []):
+                    unk[i]["_tier"] = (0, unk[i]["_tier"][1])
+                    valid.append(unk[i])
 
             chosen = _pick_newest(valid, self._autoplay_channels.get(str(current_videoid or "")))
             if chosen:
