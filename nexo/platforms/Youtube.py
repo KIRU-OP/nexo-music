@@ -368,6 +368,50 @@ def _same_title(a: str, b: str, da: int = 0, db: int = 0) -> bool:
     return len(ta & tb) / len(ta | tb) >= 0.7
 
 
+# ---------------------------------------------------------------------------
+# NEW SONGS FIRST: autoplay mein naye (recent upload) gaane pehle, har baar alag
+# ---------------------------------------------------------------------------
+AUTOPLAY_NEW_DAYS = max(1, int_env("AUTOPLAY_NEW_DAYS", 180))     # itne din tak ka upload = "new"
+AUTOPLAY_POOL = max(3, int_env("AUTOPLAY_POOL", 12))              # itne candidates mein se sabse naya chuno
+AUTOPLAY_POOL_HARD = max(AUTOPLAY_POOL, int_env("AUTOPLAY_POOL_HARD", 40))  # naya na mile to itna tak dhundho
+
+_AGE_RE = re.compile(r"(\d+)\s*(second|minute|hour|day|week|month|year)s?", re.IGNORECASE)
+_AGE_UNIT_DAYS = {"second": 0, "minute": 0, "hour": 0, "day": 1, "week": 7, "month": 30, "year": 365}
+
+
+def _age_days(published) -> Union[int, None]:
+    """"3 weeks ago" / "Streamed 2 months ago" -> din. Pata na chale to None."""
+    m = _AGE_RE.search(str(published or ""))
+    if not m:
+        return None
+    return int(m.group(1)) * _AGE_UNIT_DAYS[m.group(2).lower()]
+
+
+def _age_bucket(age: Union[int, None]) -> int:
+    """0 = bilkul naya, 1 = is saal ka, 2 = upload ka time pata nahi, 3 = purana."""
+    if age is None:
+        return 2
+    if age <= AUTOPLAY_NEW_DAYS:
+        return 0
+    return 1 if age <= 365 else 3
+
+
+def _pick_newest(items: list, avoid_channel: Union[str, None] = None):
+    """Sabse naya gaana. Barabar hon to wo jo pichhle gaane ke channel se alag ho, phir relevance order.
+    Return item (internal '_' keys hata ke) ya None."""
+    if not items:
+        return None
+    best = min(
+        enumerate(items),
+        key=lambda p: (
+            _age_bucket(p[1].get("_age")),
+            1 if (avoid_channel and p[1].get("_ch") == avoid_channel) else 0,
+            p[0],
+        ),
+    )[1]
+    return {k: v for k, v in best.items() if not k.startswith("_")}
+
+
 class YouTubeAPI:
     @staticmethod
     def same_title(a: str, b: str, da: int = 0, db: int = 0) -> bool:
@@ -387,6 +431,7 @@ class YouTubeAPI:
             "existing_files": 0
         }
         self._background_cache_tasks = {}
+        self._autoplay_channels = {}   # autoplay se chune gaane ka vidid -> channel (agla alag channel se)
 
     def _has_disallowed_url_chars(self, link: str) -> bool:
         return any(char in link for char in [";", "&", "|", "$", "\n", "\r", "`"])
@@ -687,25 +732,70 @@ class YouTubeAPI:
 
             for r in first:
                 yield r
-            extra = [f"{query} similar songs", f"songs like {query}"]
+            year = time.gmtime().tm_year
+            extra = [
+                f"{query} similar songs",
+                f"songs like {query}",
+                f"new songs like {query}",
+                f"latest songs {year}",
+            ]
             if channel_name:
-                extra.append(f"{channel_name} songs")
+                extra.append(f"{channel_name} new songs")
             for text in extra:
                 for r in await search_page(text):
                     yield r
 
+        # Pool banao (naye wale milne tak), phir sabse NAYA aur pehle se ALAG gaana chuno
+        seed_channel = self._autoplay_channels.get(str(videoid or ""))
+        pool: list = []
+        picked_titles: list = []
+        details_budget = 5            # candidate ki details alag se lani pade to itni hi baar
         seen = set()
-        async for candidate in candidate_stream():
-            candidate_id = candidate.get("id")
-            if not candidate_id or candidate_id in seen:
-                continue
-            seen.add(candidate_id)
+        stream = candidate_stream()
+        try:
+            async for candidate in stream:
+                candidate_id = candidate.get("id")
+                if not candidate_id or candidate_id in seen:
+                    continue
+                seen.add(candidate_id)
 
-            formatted = self._format_autoplay_candidate(candidate, videoid, max_duration)
-            if formatted:
-                if is_seed_song(
-                    formatted["vidid"], formatted["title"], formatted["duration_sec"]
-                ):
+                channel = candidate.get("channel")
+                ch_name = channel.get("name") if isinstance(channel, dict) else None
+                age = _age_days(candidate.get("publishedTime"))
+
+                formatted = self._format_autoplay_candidate(candidate, videoid, max_duration)
+                if not formatted:
+                    if candidate_id == videoid or details_budget <= 0:
+                        continue
+                    details_budget -= 1
+                    try:
+                        (
+                            resolved_title,
+                            duration_min,
+                            duration_sec,
+                            thumbnail,
+                            resolved_videoid,
+                        ) = await self.details(candidate_id, videoid=True)
+                    except Exception:
+                        continue
+                    if (
+                        not resolved_videoid
+                        or resolved_videoid == videoid
+                        or not duration_sec
+                        or duration_sec > DURATION_LIMIT
+                        or (max_duration and duration_sec > max_duration)
+                    ):
+                        continue
+                    formatted = {
+                        "title": resolved_title,
+                        "duration_min": duration_min,
+                        "duration_sec": duration_sec,
+                        "thumb": thumbnail,
+                        "vidid": resolved_videoid,
+                        "link": f"{self.base}{resolved_videoid}",
+                    }
+
+                if is_seed_song(formatted["vidid"], formatted["title"], formatted["duration_sec"]):
                     logger.info("Autoplay skip (same song): %s", formatted["title"])
                     continue
                 if is_played and await is_played(
@@ -713,46 +803,42 @@ class YouTubeAPI:
                 ):
                     logger.info("Autoplay skip (already played): %s", formatted["title"])
                     continue
-                logger.info("Autoplay pick: %s", formatted["title"])
-                return formatted
+                # pool ke andar bhi ek gaana ek hi baar (alag upload / lyrics version nahi)
+                if any(
+                    _same_title(formatted["title"], t, formatted["duration_sec"], d)
+                    for t, d in picked_titles
+                ):
+                    continue
+                picked_titles.append((formatted["title"], formatted["duration_sec"]))
 
-            if candidate_id == videoid:
-                continue
+                formatted["_age"] = age
+                formatted["_ch"] = ch_name
+                pool.append(formatted)
+
+                has_new = any(_age_bucket(i.get("_age")) == 0 for i in pool)
+                if (len(pool) >= AUTOPLAY_POOL and has_new) or len(pool) >= AUTOPLAY_POOL_HARD:
+                    break
+        finally:
             try:
-                (
-                    resolved_title,
-                    duration_min,
-                    duration_sec,
-                    thumbnail,
-                    resolved_videoid,
-                ) = await self.details(candidate_id, videoid=True)
+                await stream.aclose()
             except Exception:
-                continue
-            if (
-                not resolved_videoid
-                or resolved_videoid == videoid
-                or not duration_sec
-                or duration_sec > DURATION_LIMIT
-                or (max_duration and duration_sec > max_duration)
-            ):
-                continue
-            if is_seed_song(resolved_videoid, resolved_title, duration_sec):
-                logger.info("Autoplay skip (same song): %s", resolved_title)
-                continue
-            if is_played and await is_played(
-                resolved_videoid, resolved_title, duration_sec
-            ):
-                logger.info("Autoplay skip (already played): %s", resolved_title)
-                continue
-            logger.info("Autoplay pick: %s", resolved_title)
-            return {
-                "title": resolved_title,
-                "duration_min": duration_min,
-                "duration_sec": duration_sec,
-                "thumb": thumbnail,
-                "vidid": resolved_videoid,
-                "link": f"{self.base}{resolved_videoid}",
-            }
+                pass
+
+        best_ch = None
+        if pool:
+            # _ch alag rakho (pick ke baad channel yaad rakhna hai)
+            chosen = _pick_newest(pool, seed_channel)
+            best_ch = next((i.get("_ch") for i in pool if i["vidid"] == chosen["vidid"]), None)
+            if best_ch:
+                if len(self._autoplay_channels) > 500:
+                    self._autoplay_channels.clear()
+                self._autoplay_channels[chosen["vidid"]] = best_ch
+            logger.info(
+                "Autoplay pick (new-first): %s | pool=%d | age_days=%s",
+                chosen["title"], len(pool),
+                next((i.get("_age") for i in pool if i["vidid"] == chosen["vidid"]), None),
+            )
+            return chosen
         return None
 
     async def autoplay_context(
@@ -803,20 +889,23 @@ class YouTubeAPI:
             else:
                 return None, "song"
 
+        # NAYE gaane pehle: "new / latest" queries sabse pehle, har query mein sabse naya upload
         if kind == "artist":
-            extra = [
+            queries = [
                 f"{core} new songs",
-                f"{core} superhit songs",
                 f"{core} latest song",
-                f"{core} jukebox",
+                base_search,
+                f"{core} superhit songs",
                 f"{core} hit songs",
+                f"{core} jukebox",
             ]
         else:
-            extra = [f"{base_search} new", f"{base_search} best", f"{base_search} hits"]
+            queries = [f"{base_search} new", base_search, f"{base_search} best", f"{base_search} hits"]
 
         seen = set()
-        for idx, text in enumerate([base_search] + extra):
-            results = first if idx == 0 else await fetch(text)
+        for text in queries:
+            results = first if text == base_search else await fetch(text)
+            valid: list = []
             for r in results:
                 vid = r.get("id")
                 if not vid or vid in seen:
@@ -841,8 +930,24 @@ class YouTubeAPI:
                 ):
                     logger.info("Autoplay skip (already played): %s", formatted["title"])
                     continue
-                logger.info("Autoplay pick (%s): %s", kind, formatted["title"])
-                return formatted, kind
+                if any(
+                    _same_title(formatted["title"], v["title"], formatted["duration_sec"], v["duration_sec"])
+                    for v in valid
+                ):
+                    continue
+                formatted["_age"] = _age_days(r.get("publishedTime"))
+                formatted["_ch"] = ch_name
+                valid.append(formatted)
+
+            chosen = _pick_newest(valid, self._autoplay_channels.get(str(current_videoid or "")))
+            if chosen:
+                ch_pick = next((v.get("_ch") for v in valid if v["vidid"] == chosen["vidid"]), None)
+                if ch_pick:
+                    if len(self._autoplay_channels) > 500:
+                        self._autoplay_channels.clear()
+                    self._autoplay_channels[chosen["vidid"]] = ch_pick
+                logger.info("Autoplay pick (%s, new-first): %s", kind, chosen["title"])
+                return chosen, kind
         return None, kind
 
     async def formats(self, link: str, videoid: Union[bool, str] = None):
