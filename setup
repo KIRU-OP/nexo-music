@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+# NOTE: -e is intentionally NOT used. Every step handles its own errors
+# so nothing exits silently.
+set -Euo pipefail
 
-# ======== VivaanXMusic Setup (stable) ========
+# ======== VivaanXMusic Setup (fixed) ========
 # - Debian/Ubuntu apt only
-# - Required/optional prompts, clear after config
-# - Environment Summary table neatly aligned
+# - Errors are shown on screen (last lines of the log)
+# - Works as root (Railway) with or without sudo
 # ============================================
 
 IS_TTY=0; [ -t 1 ] && IS_TTY=1
@@ -16,46 +18,53 @@ c(){
       bold) tput bold;; dim) tput dim;; ul) tput smul;;
       red) tput setaf 1;; green) tput setaf 2;; yellow) tput setaf 3;;
       blue) tput setaf 4;; magenta) tput setaf 5;; cyan) tput setaf 6;;
-      reset) tput sgr0;; *) tput sgr0;;
+      *) tput sgr0;;
     esac
   else
     case "$1" in
       bold) printf '\033[1m';; dim) printf '\033[2m';; ul) printf '\033[4m';;
       red) printf '\033[31m';; green) printf '\033[32m';; yellow) printf '\033[33m';;
       blue) printf '\033[34m';; magenta) printf '\033[35m';; cyan) printf '\033[36m';;
-      reset) printf '\033[0m';; *) printf '\033[0m';;
+      *) printf '\033[0m';;
     esac
   fi
 }
 
-term_width(){ (stty size 2>/dev/null | awk '{print $2}') || echo 100; }
+term_width(){
+  local w=""
+  w="$(tput cols 2>/dev/null || true)"
+  case "$w" in ''|*[!0-9]*) w=100;; esac
+  [ "$w" -lt 40 ] && w=40
+  echo "$w"
+}
+
 hr(){
-  local w
+  local w line
   w="$(term_width)"
-  printf "%s\n" "$(c dim)$(printf '─%.0s' $(seq 1 "$w"))$(c reset)"
+  line="$(printf '%*s' "$w" '' | tr ' ' '─')"
+  printf "%s%s%s\n" "$(c dim)" "$line" "$(c reset)"
 }
 
 banner(){
-  clear
+  [ "$IS_TTY" -eq 1 ] && clear
   printf "%s" "$(c magenta)"
   cat <<'EOF'
 
   _   _ _____  __  __  ___
-| \ | | ____| \ \/ / / _ \
-|  \| |  _|    \  / | | | |
-| |\  | |___   /  \ | |_| |
-|_| \_|_____| /_/\_\ \___/
-                                                                                                                                                       
+ | \ | | ____| \ \/ / / _ \
+ |  \| |  _|    \  / | | | |
+ | |\  | |___   /  \ | |_| |
+ |_| \_|_____| /_/\_\ \___/
 
 EOF
-  printf "%s%s%s\n" "$(c bold)" "$(c cyan)A clean, guided setup experience" "$(c reset)"
+  printf "%s%s%s\n" "$(c bold)$(c cyan)" "A clean, guided setup experience" "$(c reset)"
   hr
 }
 
-info(){ printf "  %sℹ%s %s\n" "$(c blue)" "$(c reset)" "$1"; }
-warn(){ printf "  %s!%s %s\n"  "$(c yellow)" "$(c reset)" "$1"; }
-good(){ printf "  %s✔%s %s\n" "$(c green)" "$(c reset)" "$1"; }
-bad(){  printf "  %s✖%s %s\n" "$(c red)"   "$(c reset)" "$1"; }
+info(){ printf "  %sℹ%s %s\n" "$(c blue)"   "$(c reset)" "$1"; }
+warn(){ printf "  %s!%s %s\n" "$(c yellow)" "$(c reset)" "$1"; }
+good(){ printf "  %s✔%s %s\n" "$(c green)"  "$(c reset)" "$1"; }
+bad(){  printf "  %s✖%s %s\n" "$(c red)"    "$(c reset)" "$1"; }
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -64,67 +73,164 @@ trap 'stty sane 2>/dev/null || true' EXIT
 LOG_DIR="$SCRIPT_DIR/logs"; mkdir -p "$LOG_DIR"
 APTLOG="$LOG_DIR/apt.log"; NODELOG="$LOG_DIR/node.log"; PYLOG="$LOG_DIR/pip.log"
 
-need_sudo(){ info "Elevated permissions may be required."; sudo -v || { bad "sudo unavailable"; exit 1; }; }
+export DEBIAN_FRONTEND=noninteractive
+SUDO=""
 
-update_system(){ info "Updating package lists"; sudo DEBIAN_FRONTEND=noninteractive apt-get update -yq >>"$APTLOG" 2>&1 || true; local upg; upg="$(apt list --upgradable 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')"; if [ "${upg:-0}" -gt 0 ]; then read -r -p "  $(c cyan)Upgrade ${upg} packages? [y/N]$(c reset) " a || true; [[ "$a" =~ ^[Yy]$ ]] && sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -yq >>"$APTLOG" 2>&1 || true; else good "System is up to date"; fi; }
+# run <logfile> <label> <command...>
+# Runs a command, logs output, and on failure prints the last log lines.
+run(){
+  local log="$1" label="$2"; shift 2
+  info "$label"
+  if "$@" >>"$log" 2>&1; then
+    return 0
+  fi
+  bad "Failed: $label"
+  printf "  %s--- last lines of %s ---%s\n" "$(c dim)" "$log" "$(c reset)"
+  tail -n 15 "$log" | sed 's/^/    /'
+  printf "  %s-------------------------------%s\n" "$(c dim)" "$(c reset)"
+  return 1
+}
 
-install_prereqs(){ info "Installing python3, pip, venv, curl, ffmpeg"; sudo apt-get install -yq python3 python3-pip python3-venv curl ffmpeg >>"$APTLOG" 2>&1 || true; if command -v ffmpeg >/dev/null 2>&1; then local maj; maj="$(ffmpeg -version 2>/dev/null | head -n1 | sed -E 's/.*version ([0-9]+).*/\1/')"; if [ -n "${maj:-}" ] && [ "$maj" -lt 4 ]; then warn "ffmpeg < 4 may not support live streams"; else good "ffmpeg version OK"; fi; fi }
+need_sudo(){
+  if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+    info "Running as root (sudo not needed)"
+  elif has sudo; then
+    SUDO="sudo"
+    info "Elevated permissions may be required."
+    sudo -v || { bad "sudo failed"; exit 1; }
+  else
+    bad "Not root and sudo is not installed. Run as root or install sudo."
+    exit 1
+  fi
+}
 
-install_node(){ if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then info "Node.js present ($(node -v))"; return; fi; info "Installing Node.js LTS"; bash -lc 'curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -' >>"$NODELOG" 2>&1; sudo apt-get install -yq nodejs >>"$NODELOG" 2>&1; sudo npm i -g npm >>"$NODELOG" 2>&1 || true; }
+update_system(){
+  run "$APTLOG" "Updating package lists" $SUDO apt-get update -yq || warn "apt update failed, continuing"
+  local upg a=""
+  upg="$(apt list --upgradable 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')"
+  if [ "${upg:-0}" -gt 0 ]; then
+    read -r -p "  $(c cyan)Upgrade ${upg} packages? [y/N]$(c reset) " a || a=""
+    if [[ "${a:-}" =~ ^[Yy]$ ]]; then
+      run "$APTLOG" "Upgrading packages" $SUDO apt-get upgrade -yq || warn "upgrade failed, continuing"
+    fi
+  else
+    good "System is up to date"
+  fi
+}
 
-install_python(){ if [ ! -f requirements.txt ]; then warn "requirements.txt not found — skipping Python deps"; return; fi; python3 -m venv .venv >>"$PYLOG" 2>&1; . ./.venv/bin/activate; python -m pip install -U pip setuptools wheel >>"$PYLOG" 2>&1; pip install -Ur requirements.txt >>"$PYLOG" 2>&1; good "Python deps installed"; }
+install_prereqs(){
+  run "$APTLOG" "Installing python3, pip, venv, curl, ffmpeg, build tools" \
+    $SUDO apt-get install -yq python3 python3-pip python3-venv curl ca-certificates gnupg \
+      ffmpeg build-essential python3-dev git || warn "Some packages failed, continuing"
+
+  if has ffmpeg; then
+    local maj
+    maj="$(ffmpeg -version 2>/dev/null | head -n1 | sed -E 's/.*version[^0-9]*([0-9]+).*/\1/')"
+    case "${maj:-}" in
+      ''|*[!0-9]*) warn "Could not read ffmpeg version";;
+      *) if [ "$maj" -lt 4 ]; then warn "ffmpeg < 4 may not support live streams"; else good "ffmpeg version OK"; fi;;
+    esac
+  else
+    bad "ffmpeg not found"
+  fi
+}
+
+install_node(){
+  if has node && has npm; then
+    info "Node.js present ($(node -v))"
+    return 0
+  fi
+  info "Installing Node.js LTS"
+  if ! curl -fsSL https://deb.nodesource.com/setup_22.x | $SUDO -E bash - >>"$NODELOG" 2>&1; then
+    bad "NodeSource setup failed"; tail -n 15 "$NODELOG" | sed 's/^/    /'; return 1
+  fi
+  run "$NODELOG" "Installing nodejs" $SUDO apt-get install -yq nodejs || return 1
+  good "Node.js installed ($(node -v))"
+}
+
+install_python(){
+  if [ ! -f requirements.txt ]; then
+    warn "requirements.txt not found — skipping Python deps"
+    return 0
+  fi
+
+  rm -rf .venv
+  info "Creating virtualenv"
+  if ! python3 -m venv .venv >>"$PYLOG" 2>&1; then
+    warn "venv creation failed, installing venv package and retrying"
+    local pyver
+    pyver="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+    $SUDO apt-get install -yq python3-venv >>"$APTLOG" 2>&1 || true
+    [ -n "$pyver" ] && { $SUDO apt-get install -yq "python${pyver}-venv" >>"$APTLOG" 2>&1 || true; }
+    rm -rf .venv
+    run "$PYLOG" "Creating virtualenv (retry)" python3 -m venv .venv || return 1
+  fi
+
+  # No 'activate' needed: call the venv python directly.
+  run "$PYLOG" "Upgrading pip, setuptools, wheel" ./.venv/bin/python -m pip install -U pip setuptools wheel || return 1
+  run "$PYLOG" "Installing requirements.txt (can take a few minutes)" ./.venv/bin/python -m pip install -Ur requirements.txt || return 1
+  good "Python deps installed"
+}
 
 # ------- Prompts -------
 prompt_req(){
   local label="$1" var="$2" val=""
   while :; do
-    IFS= read -r -p "  $(c yellow)$label (required): $(c reset)" val || true
+    IFS= read -r -p "  $(c yellow)$label (required): $(c reset)" val || { printf "\n"; bad "No input available (stdin closed)"; exit 1; }
     [ -n "$val" ] && break
     printf "  %s!%s required field\n" "$(c yellow)" "$(c reset)"
   done
   printf -v "$var" '%s' "$val"
 }
 
-prompt_opt(){
-  local label="$1" var="$2" val=""
-  IFS= read -r -p "  $(c yellow)$label (optional): $(c reset)" val || true
-  printf -v "$var" '%s' "$val"
+mask(){
+  local s="$1" n=${#1}
+  if [ "$n" -le 8 ]; then
+    printf '%s' "********"
+  else
+    printf '%s…%s' "${s:0:3}" "${s: -3}"
+  fi
 }
 
 ell(){
   local s="$1" max="$2" n=${#1}
-  if [ "$n" -gt "$max" ]; then
-    printf "%s…" "${s:0:$((max-1))}"
-  else
-    printf "%s" "$s"
-  fi
+  if [ "$n" -gt "$max" ]; then printf "%s…" "${s:0:$((max-1))}"; else printf "%s" "$s"; fi
 }
 
 # ------- Summary Table -------
 print_table(){
   local h1="$1" h2="$2"; shift 2
-  local rows=("$@") max1=${#h1}
-  local r c1 c2
+  local rows=("$@") max1=${#h1} r c1 c2 w right sep1 sep2
   for r in "${rows[@]}"; do c1="${r%%|*}"; [ ${#c1} -gt $max1 ] && max1=${#c1}; done
-  local w right sep1 sep2
   w="$(term_width)"; right=$(( w - max1 - 7 )); [ $right -lt 20 ] && right=20
-  sep1="$(printf '─%.0s' $(seq 1 $((max1+2))))"; sep2="$(printf '─%.0s' $(seq 1 $right))"
+  sep1="$(printf '%*s' $((max1+2)) '' | tr ' ' '─')"
+  sep2="$(printf '%*s' "$right" '' | tr ' ' '─')"
   printf "%s┌%s┬%s%s\n" "$(c dim)" "$sep1" "$sep2" "$(c reset)"
-  printf "│ %-${max1}s │ %s\n" "$(c bold)$h1$(c reset)" "$(c bold)$h2$(c reset)"
+  printf "│ %s%-*s%s │ %s%s%s\n" "$(c bold)" "$max1" "$h1" "$(c reset)" "$(c bold)" "$h2" "$(c reset)"
   printf "%s├%s┼%s%s\n" "$(c dim)" "$sep1" "$sep2" "$(c reset)"
-  for r in "${rows[@]}"; do c1="${r%%|*}"; c2="${r#*|}"; printf "│ %-${max1}s │ %s\n" "$c1" "$(ell "$c2" "$right")"; done
+  for r in "${rows[@]}"; do
+    c1="${r%%|*}"; c2="${r#*|}"
+    printf "│ %-*s │ %s\n" "$max1" "$c1" "$(ell "$c2" "$right")"
+  done
   printf "%s└%s┴%s%s\n" "$(c dim)" "$sep1" "$sep2" "$(c reset)"
 }
 
-write_env(){ umask 077; local tmp; tmp="$(mktemp .env.tmp.XXXXXX)"; {
-  printf "API_HASH=%s\n"        "$api_hash"
-  printf "API_ID=%s\n"          "$api_id"
-  printf "BOT_TOKEN=%s\n"       "$bot_token"
-  printf "LOGGER_ID=%s\n"       "$logger"
-  printf "MONGO_DB_URI=%s\n"    "$mongo_db"
-  printf "OWNER_ID=%s\n"        "$ownid"
-  printf "STRING_SESSION=%s\n"  "$string_session"
-} >"$tmp"; mv "$tmp" .env; }
+write_env(){
+  umask 077
+  local tmp
+  tmp="$(mktemp ./.env.tmp.XXXXXX)" || { bad "Cannot create temp file"; exit 1; }
+  {
+    printf "API_HASH=%s\n"        "$api_hash"
+    printf "API_ID=%s\n"          "$api_id"
+    printf "BOT_TOKEN=%s\n"       "$bot_token"
+    printf "LOGGER_ID=%s\n"       "$logger"
+    printf "MONGO_DB_URI=%s\n"    "$mongo_db"
+    printf "OWNER_ID=%s\n"        "$ownid"
+    printf "STRING_SESSION=%s\n"  "$string_session"
+  } >"$tmp"
+  mv "$tmp" .env
+}
 
 # ------- Flow -------
 collect_config(){
@@ -141,26 +247,29 @@ collect_config(){
   prompt_req "MONGO DB URI" mongo_db
 
   write_env
-  clear
-  printf "%sEnvironment Summary%s\n" "$(c bold)" "$(c reset)"; hr
+  [ "$IS_TTY" -eq 1 ] && clear
+  printf "%sEnvironment Summary%s (secrets masked, full values are in .env)\n" "$(c bold)" "$(c reset)"; hr
   print_table "Key" "Value" \
     "API_ID|$api_id" \
-    "API_HASH|$api_hash" \
+    "API_HASH|$(mask "$api_hash")" \
     "OWNER_ID|$ownid" \
     "LOGGER_ID|$logger" \
-    "BOT_TOKEN|$bot_token" \
-    "STRING_SESSION|$string_session" \
-    "MONGO_DB_URI|$mongo_db"
+    "BOT_TOKEN|$(mask "$bot_token")" \
+    "STRING_SESSION|$(mask "$string_session")" \
+    "MONGO_DB_URI|$(mask "$mongo_db")"
 }
 
 final_notes(){
   printf "\n"; hr
   good ".env saved successfully"
-  info  "Edit: ./.env"
-  if [ -x "./start" ] || [ -f "./start.sh" ]; then
-    info  "Start the bot: bash start"
+  info "Edit: ./.env"
+  if [ -x "./start" ] || [ -f "./start" ] || [ -f "./start.sh" ]; then
+    info "Start the bot: bash start"
   else
-    warn  "Start script not found — run your launcher from project root"
+    warn "Start script not found — run your launcher from project root"
+  fi
+  if [ -x ./.venv/bin/python ]; then
+    info "Run python with: ./.venv/bin/python  (or: source .venv/bin/activate)"
   fi
   printf "\nLogs:\n  - %s\n  - %s\n  - %s\n" "$APTLOG" "$NODELOG" "$PYLOG"
   printf "\n%sThank you for using Vivaan Installer%s\n" "$(c bold)$(c cyan)" "$(c reset)"
@@ -172,8 +281,8 @@ main(){
   need_sudo
   update_system
   install_prereqs
-  install_node
-  install_python
+  install_node  || warn "Node.js step failed (see $NODELOG), continuing"
+  install_python || warn "Python step failed (see $PYLOG), continuing to config"
   collect_config
   final_notes
 }
