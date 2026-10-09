@@ -1185,7 +1185,7 @@ class YouTubeAPI:
             results = []
             search_results = await search_videos_with_retry(link, limit=10)
 
-            # Filter videos longer than 1 hour
+            # Filter videos longer than the configured DURATION_LIMIT
             for result in search_results:
                 duration_str = result.get("duration", "0:00")
                 try:
@@ -1196,7 +1196,7 @@ class YouTubeAPI:
                     elif len(parts) == 2:
                         duration_secs = int(parts[0]) * 60 + int(parts[1])
 
-                    if duration_secs <= 3600:
+                    if duration_secs and duration_secs <= DURATION_LIMIT:
                         results.append(result)
                 except (ValueError, IndexError):
                     continue
