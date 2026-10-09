@@ -1,4 +1,5 @@
 import asyncio
+import difflib
 import logging
 import random
 import re
@@ -178,6 +179,9 @@ MOVIE_DB = {
 BAD_WORDS = [
     "slowed", "reverb", "8d", "lofi", "live", "mix", "dj remix",
     "bass boosted", "cover", "karaoke", "instrumental", "sped up",
+    # same gaane ke doosre "avatar" (alag awaaz / alag version)
+    "version", "reprise", "unplugged", "acoustic", "mashup", "remake",
+    "recreated", "tribute", "female", "rework", "refix", "remix",
 ]
 SPAM_TITLE = ["lyrical", "lyrics video", "lyric video", "cover by", "remix by", "dj remix"]
 SPAM_CHANNEL = ["lyrics", "lofi", "slowed", "reverb", "cover", "karaoke", "remix", "8d"]
@@ -327,34 +331,84 @@ _NOISE_WORDS = [
     "official", "video", "music", "audio", "lyrics", "lyrical", "lyric", "full",
     "hd", "hq", "4k", "song", "new", "latest", "visualizer", "teaser", "promo",
 ]
+# Same gaane ke doosre version -- title se hata do taaki "Blue Eyes (Female Version)" == "Blue Eyes"
+_VERSION_NOISE = [
+    "version", "reprise", "unplugged", "acoustic", "remake", "recreated",
+    "tribute", "female", "male", "remix", "cover", "mashup", "rework", "refix",
+    "original",
+]
+_LABEL_TOKENS = {"records", "music", "films", "movies", "productions", "entertainment",
+                 "company", "studios", "series", "label", "vevo", "topic"}
+
+_SPLIT_RE = re.compile(r"\s[-|\u2013\u2014]\s|\s(?:ft|feat|featuring)\.?\s", re.IGNORECASE)
+_ARTIST_SET_CACHE = (0, frozenset())
 
 
-def normalize_title(title: str) -> str:
-    """"Tum Hi Ho (Official Video) - Arijit Singh" aur "तुम ही हो" -> "tum hi ho"."""
-    if not title:
-        return ""
-    t = _ascii(title.strip()).lower().strip()
-    for sep in (" - ", " | ", " — ", " ft ", " feat "):
-        if sep in t:
-            t = t.split(sep)[0].strip()
-            break
-    t = re.sub(r"[\(\[\{][^\)\]\}]*[\)\]\}]", "", t)
-    for w in _NOISE_WORDS:
-        t = re.sub(rf"\b{w}\b", "", t)
+def _artist_names() -> frozenset:
+    global _ARTIST_SET_CACHE
+    n = len(ARTIST_DB)
+    if _ARTIST_SET_CACHE[0] != n:
+        names = set(ARTIST_DB) | set(SIMILAR_ARTISTS)
+        for lst in ARTIST_LANG.values():
+            names.update(lst)
+        _ARTIST_SET_CACHE = (n, frozenset(_norm(x) for x in names))
+    return _ARTIST_SET_CACHE[1]
+
+
+def _clean_segment(seg: str) -> str:
+    t = re.sub(r"[^\w\s]", " ", seg)
+    for w in _NOISE_WORDS + _VERSION_NOISE:
+        t = re.sub(rf"\b{w}\b", " ", t)
     return re.sub(r"\s+", " ", t).strip()
 
 
+def title_keys(title: str) -> List[str]:
+    """Title ke saare 'gaane ke naam' wale hisse.
+
+    "Yo Yo Honey Singh - Blue Eyes (Official Video)" -> ["blue eyes"]
+    "Blue Eyes (Female Version) | Singer X"        -> ["blue eyes", "singer x"]
+    Known artist / label wale hisse hata diye jaate hain, taaki "Artist - Song" aur
+    "Song - Artist" dono layout mein asli gaane ka naam compare ho.
+    """
+    if not title:
+        return []
+    t = _ascii(title).lower()
+    t = re.sub(r"[\(\[\{][^\)\]\}]*[\)\]\}]", " ", t)
+    names = _artist_names()
+    keys: List[str] = []
+    for seg in _SPLIT_RE.split(t):
+        k = _clean_segment(seg)
+        if len(k) < 4 or k in names or (set(k.split()) & _LABEL_TOKENS):
+            continue
+        if k not in keys:
+            keys.append(k)
+    return keys
+
+
+def normalize_title(title: str) -> str:
+    """Purana API: gaane ka ek saaf naam (pehla key)."""
+    keys = title_keys(title)
+    return keys[0] if keys else ""
+
+
 def _same_song(stored: str, candidate: str) -> bool:
-    """Exact / startswith / pehla lamba shabd same (>=7 akshar)."""
+    """Exact / prefix (tokens ke hisaab se) / spelling-similar / pehla lamba shabd same."""
     if not stored or not candidate or len(stored) < 4 or len(candidate) < 4:
         return False
     if stored == candidate:
         return True
-    short, long_ = (stored, candidate) if len(stored) <= len(candidate) else (candidate, stored)
-    if len(short) >= 8 and long_.startswith(short):
+    ta, tb = stored.split(), candidate.split()
+    short, long_ = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    sj = " ".join(short)
+    if len(sj) >= 8 and long_[:len(short)] == short:
         return True
-    sf, lf = short.split()[0], long_.split()[0]
-    return sf == lf and len(sf) >= 7
+    if len(sj) >= 5 and difflib.SequenceMatcher(None, stored, candidate).ratio() >= 0.88:
+        return True
+    return short[0] == long_[0] and len(short[0]) >= 7
+
+
+def _keys_match(a: List[str], b: List[str]) -> bool:
+    return any(_same_song(x, y) for x in a for y in b)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -364,9 +418,9 @@ def _same_song(stored: str, candidate: str) -> bool:
 def _prune(items: List[dict]) -> List[dict]:
     now = time.time()
     if len(items) > KEEP_ALWAYS:
-        items = items[-KEEP_ALWAYS:] + [
+        items = [
             i for i in items[:-KEEP_ALWAYS] if now - i.get("ts", 0) < EXPIRE_SEC
-        ]
+        ] + items[-KEEP_ALWAYS:]          # order: purana -> naya (items[-1] hamesha latest)
     return items[-MAX_RECENT:]
 
 
@@ -383,14 +437,22 @@ async def _load_recent(chat_id: int) -> List[dict]:
     return items
 
 
+def _item_keys(i: dict) -> List[str]:
+    return i.get("keys") or ([i["title"]] if i.get("title") else [])
+
+
+def _repeat_in(items: List[dict], vidid: str, keys: List[str]) -> bool:
+    for i in items:
+        if vidid and i.get("id") == vidid:
+            return True
+        if keys and _keys_match(_item_keys(i), keys):
+            return True
+    return False
+
+
 async def is_repeat(chat_id: int, vidid: str, title: str = "") -> bool:
     items = await _load_recent(int(chat_id))
-    if vidid and any(i.get("id") == vidid for i in items):
-        return True
-    norm = normalize_title(title)
-    if norm and len(norm) >= 4:
-        return any(_same_song(i.get("title", ""), norm) for i in items)
-    return False
+    return _repeat_in(items, vidid, title_keys(title))
 
 
 async def has_played(chat_id, vid, title=None, channel=None, duration=None) -> bool:
@@ -408,6 +470,7 @@ async def add_recent(chat_id: int, vidid: str, title: str = "", artist: str = ""
     items.append({
         "id": vidid,
         "title": normalize_title(title),
+        "keys": title_keys(title),
         "artist": (artist or "").lower(),
         "ts": time.time(),
     })
@@ -433,12 +496,39 @@ async def recent_artists(chat_id: int, n: int = 10) -> List[str]:
 #  CONTEXT DB
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def _context_from_title(title: str) -> dict:
+def _artist_from_channel(channel) -> str:
+    if isinstance(channel, dict):
+        channel = channel.get("name")
+    ch = _norm(channel if isinstance(channel, str) else "")
+    if not ch:
+        return ""
+    if ch.endswith(" topic"):                       # "Yo Yo Honey Singh - Topic"
+        return ch[:-6].strip()
+    for name in _artist_names():
+        if name and _has_any([name], ch):
+            return name
+    return ""
+
+
+def _resolve_artist(title: str, channel=None) -> str:
+    """extract_artist ka ankaa kabhi gaane ka NAAM hota hai ("Singer - Blue Eyes" mein
+    separator ke baad wala hissa).  Anjaan naam tabhi maano jab channel se confirm ho,
+    warna autoplay usi gaane ko dobara search karta hai."""
+    artist = extract_artist(title)
+    if artist and artist not in _artist_names():
+        ch = _norm(channel if isinstance(channel, str) else "")
+        ch = ch[:-6].strip() if ch.endswith(" topic") else ch
+        if not (ch and (artist in ch or ch in artist)):
+            artist = ""
+    return artist or _artist_from_channel(channel)
+
+
+def _context_from_title(title: str, channel=None) -> dict:
     return {
         "title": title,
         "lang": detect_lang(title),
         "mood": detect_mood(title),
-        "artist": extract_artist(title),
+        "artist": _resolve_artist(title, channel),
         "movie": detect_movie(title),
     }
 
@@ -498,10 +588,10 @@ async def note_played(
     user ka lagaya gaana naya 'seed' ban jata hai (lang / mood / artist / movie badal jaate hain)."""
     chat_id = int(chat_id)
     title = title or ""
-    await add_recent(chat_id, str(vid or ""), title, extract_artist(title))
+    await add_recent(chat_id, str(vid or ""), title, _resolve_artist(title, channel))
     if autoplayed:
         return
-    doc = _context_from_title(title)
+    doc = _context_from_title(title, channel)
     doc["seed_vid"] = str(vid or "")
     await _save_context(chat_id, doc)
 
@@ -538,11 +628,8 @@ def build_smart_queries(title, artist, movie, lang, mood, recent_artists_list=No
     queries: List[str] = []
     recent_artists_list = recent_artists_list or []
 
-    clean = re.sub(r"official|video|lyrics|lyrical|hd|4k|music|song|audio|full|hq",
-                   "", title or "", flags=re.IGNORECASE).strip()
-    if clean:
-        queries += [f"{clean} official song", f"{clean} official audio",
-                    f"{clean} {lang}" if lang else clean]
+    # NOTE: yahan gaane ke apne title se query NAHI banti -- "<title> official song" search
+    # karne par wahi gaana / uske cover (doosri awaaz) wapas aate the.
 
     if artist:
         if recent_artists_list.count(artist.lower()) >= 3:     # same artist bahut ho gaya
@@ -593,8 +680,9 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
 
     blocked = set(INCOMPATIBLE_LANGS.get(lang, []))
     recent_art = await recent_artists(chat_id)
-    last_norm = normalize_title(last_title)
-    orig_words = last_title.lower().split()
+    history = await _load_recent(chat_id)
+    seed_keys = title_keys(last_title) + title_keys(ctx.get("query") or "")
+    bad = [b for b in BAD_WORDS if not _has_any([b], last_title)]   # user ne khud maanga ho to allow
 
     scored = []
     for r in candidates or []:
@@ -602,14 +690,15 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
         tl = raw.lower()
         if not vid or vid == last_vid:
             continue
-        if any(_has_any([b], tl) for b in BAD_WORDS) or _EPISODE_RE.search(tl):
+        if any(_has_any([b], tl) for b in bad) or _EPISODE_RE.search(tl):
             continue
-        if last_norm and normalize_title(raw) == last_norm:
+        ckeys = title_keys(raw)
+        if seed_keys and _keys_match(seed_keys, ckeys):      # seed gaana / uska koi bhi version
             continue
         sec = _result_duration(r)
         if sec and not (MIN_SEC <= sec <= MAX_SEC):
             continue
-        if await is_repeat(chat_id, vid, raw):
+        if _repeat_in(history, vid, ckeys):
             continue
         if mood != "devotional" and _has_any(DEVOTIONAL_WORDS, tl):
             continue
@@ -628,7 +717,6 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
         if ch.endswith(" - topic"):                     # YouTube ka auto original-track channel
             official, score = True, score + 60
 
-        score += 15 * sum(1 for w in orig_words[:5] if len(w) > 3 and w in tl)
         if artist and artist.lower() in tl:
             score += 50
             if tl.startswith(artist.lower()):
