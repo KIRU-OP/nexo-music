@@ -29,6 +29,7 @@ TG_AUDIO_FILESIZE_LIMIT = int(getenv("TG_AUDIO_FILESIZE_LIMIT", "157286400"))   
 TG_VIDEO_FILESIZE_LIMIT = int(getenv("TG_VIDEO_FILESIZE_LIMIT", "2147483648"))      # 2 GB (fixed from bogus 1.17 PB value)
 QUEUE_LIMIT = int(getenv("QUEUE_LIMIT", "10"))
 PLAYLIST_FETCH_LIMIT = int(getenv("PLAYLIST_FETCH_LIMIT", str(QUEUE_LIMIT)))
+DURATION_LIMIT = int(getenv("DURATION_LIMIT", 600)) * 60   # 600 min = 10 ghante
 
 # ── External APIs ──────────────────────────────────────────────────────────────
 API_URL = getenv("API_URL")        # optional
