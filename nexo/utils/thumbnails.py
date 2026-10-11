@@ -21,7 +21,7 @@ from nexo.core.dir import CACHE_DIR
 TITLE_FONT_PATH = "nexo/assets/thumb/font2.ttf"
 META_FONT_PATH = "nexo/assets/thumb/font.ttf"
 FALLBACK_AVATAR_URL = "https://files.catbox.moe/0ld5qc.jpg"
-THUMB_CACHE_VERSION = "v26"
+THUMB_CACHE_VERSION = "v27"   # bump: purane "Unknown Title" wale cached cards invalid
 THUMBNAIL_FETCH_TIMEOUT = aiohttp.ClientTimeout(total=16.0, connect=5.0, sock_read=8.0)
 THUMBNAIL_FETCH_HEADERS = {
     "User-Agent": (
@@ -889,6 +889,69 @@ def accent_palette(image):
     return accent, soft
 
 
+def _fmt_duration(seconds) -> str:
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        return ""
+    if seconds <= 0:
+        return ""
+    h, rem = divmod(seconds, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+
+
+def _fmt_views(count) -> str:
+    try:
+        n = float(count)
+    except (TypeError, ValueError):
+        return ""
+    for div, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if n >= div:
+            v = f"{n / div:.1f}".rstrip("0").rstrip(".")
+            return f"{v}{suffix} views"
+    return f"{int(n)} views"
+
+
+def _ytdlp_meta_sync(videoid: str) -> dict | None:
+    """yt-dlp se title / channel / views / duration -- VideosSearch-style dict."""
+    options = {
+        "quiet": True, "no_warnings": True, "skip_download": True,
+        "socket_timeout": 10, "retries": 1, "noplaylist": True,
+        "logger": QuietYtDlpLogger(),
+    }
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(f"https://www.youtube.com/watch?v={videoid}", download=False)
+    if not info:
+        return None
+    thumbs = [{"url": t["url"]} for t in (info.get("thumbnails") or []) if t.get("url")]
+    if info.get("thumbnail"):
+        thumbs.insert(0, {"url": info["thumbnail"]})
+    return {
+        "id": videoid,
+        "title": info.get("title") or "",
+        "duration": _fmt_duration(info.get("duration")),
+        "viewCount": {"short": _fmt_views(info.get("view_count"))},
+        "channel": {"name": info.get("channel") or info.get("uploader") or ""},
+        "thumbnails": thumbs,
+    }
+
+
+async def lookup_video_meta(videoid: str) -> dict | None:
+    """Pehle VideosSearch; 'proxies' / koi bhi error par yt-dlp fallback (Unknown card nahi banega)."""
+    url = f"https://www.youtube.com/watch?v={videoid}"
+    try:
+        data = (await VideosSearch(url, limit=1).next()).get("result", [])
+        if data:
+            return data[0]
+    except Exception:
+        pass
+    try:
+        return await asyncio.to_thread(_ytdlp_meta_sync, videoid)
+    except Exception:
+        return None
+
+
 async def get_thumb(videoid, user_id=None):
     """Generate an enhanced glassmorphic playback thumbnail."""
     cache_user_id = user_id if user_id is not None else "blank"
@@ -908,13 +971,7 @@ async def get_thumb(videoid, user_id=None):
     views = "Unknown Views"
     channel = resolve_brand_name()
     try:
-        result = None
-        try:
-            results = VideosSearch(url, limit=1)
-            results_data = (await results.next()).get("result", [])
-            result = results_data[0] if results_data else None
-        except Exception:
-            result = None
+        result = await lookup_video_meta(videoid)
 
         title = trim_text(
             re.sub(

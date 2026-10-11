@@ -208,7 +208,7 @@ def _ascii(text: Optional[str]) -> str:
 
 def _norm(text: Optional[str]) -> str:
     """lower + Roman + sirf shabd (word-boundary matching ke liye)."""
-    t = re.sub(r"[^\w\s]", " ", _ascii(text).lower())
+    t = re.sub(r"[^\w\s]|_", " ", _ascii(text).lower())     # "#Tuntun_Yadav" -> "tuntun yadav"
     return re.sub(r"\s+", " ", t).strip()
 
 
