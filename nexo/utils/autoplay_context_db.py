@@ -74,6 +74,7 @@ SIMILAR_ARTISTS = {
     "guru randhawa":     ["badshah", "yo yo honey singh", "neha kakkar"],
     "pawan singh":       ["khesari lal yadav", "pramod premi", "dinesh lal yadav"],
     "khesari lal yadav": ["pawan singh", "pramod premi", "dinesh lal yadav"],
+    "tuntun yadav":      ["khesari lal yadav", "pawan singh", "pramod premi", "dinesh lal yadav"],
 }
 
 LANG_DB = {
@@ -108,7 +109,8 @@ ARTIST_LANG = {
     ],
     "bhojpuri": [
         "pawan singh", "khesari lal yadav", "pramod premi", "dinesh lal yadav",
-        "manoj tiwari", "ritesh pandey",
+        "manoj tiwari", "ritesh pandey", "tuntun yadav", "shilpi raj",
+        "neelkamal singh", "samar singh", "arvind akela kallu", "ankush raja",
     ],
     "haryanvi": [
         "khasa aala chahar", "masoom sharma", "renuka panwar", "raj mawar",
@@ -155,6 +157,7 @@ ARTIST_DB = {
     "gurinder gill":     ["gurinder gill", "gurinder song"],
     "pawan singh":       ["pawan singh", "pawan song"],
     "khesari lal yadav": ["khesari", "khesari lal yadav", "khesari song"],
+    "tuntun yadav":      ["tuntun", "tuntun yadav", "tun tun yadav", "tuntun song"],
 }
 
 MOVIE_DB = {
@@ -340,6 +343,18 @@ _VERSION_NOISE = [
 _LABEL_TOKENS = {"records", "music", "films", "movies", "productions", "entertainment",
                  "company", "studios", "series", "label", "vevo", "topic"}
 
+# Channel ka naam inme se ho to usse ARTIST mat samjho (label / company hai)
+_LABEL_NAMES = {
+    "t series", "tseries", "saregama", "zee", "sony", "tips", "venus", "yrf",
+    "yash raj", "speed", "shemaroo", "goldmines", "lahari", "eros", "times",
+    "t-series", "aditya", "jjust", "worldwide", "wave", "think", "desi",
+}
+
+# "X | Artist | Bhojpuri Song" mein "bhojpuri" gaane ka naam nahi -- warna har gaana repeat lagta hai
+_GENERIC_KEYS = {_norm(x) for ks in LANG_DB.values() for x in ks} | set(LANG_DB) | {
+    "bhajpuri", "new", "latest", "hit", "hits", "superhit", "jukebox", "full song",
+}
+
 _SPLIT_RE = re.compile(r"\s[-|\u2013\u2014]\s|\s(?:ft|feat|featuring)\.?\s", re.IGNORECASE)
 _ARTIST_SET_CACHE = (0, frozenset())
 
@@ -349,6 +364,8 @@ def _artist_names() -> frozenset:
     n = len(ARTIST_DB)
     if _ARTIST_SET_CACHE[0] != n:
         names = set(ARTIST_DB) | set(SIMILAR_ARTISTS)
+        for _keys in ARTIST_DB.values():       # "tuntun" jaise alias bhi gaane ka naam nahi
+            names.update(_keys)
         for lst in ARTIST_LANG.values():
             names.update(lst)
         _ARTIST_SET_CACHE = (n, frozenset(_norm(x) for x in names))
@@ -378,7 +395,7 @@ def title_keys(title: str) -> List[str]:
     keys: List[str] = []
     for seg in _SPLIT_RE.split(t):
         k = _clean_segment(seg)
-        if len(k) < 4 or k in names or (set(k.split()) & _LABEL_TOKENS):
+        if len(k) < 4 or k in names or k in _GENERIC_KEYS or (set(k.split()) & _LABEL_TOKENS):
             continue
         if k not in keys:
             keys.append(k)
@@ -510,7 +527,30 @@ def _artist_from_channel(channel) -> str:
     return ""
 
 
-def _resolve_artist(title: str, channel=None) -> str:
+_CHANNEL_NOISE = re.compile(
+    r"\b(topic|official|vevo|music|records|record|channel|studio|studios|films|"
+    r"entertainment|hd|company|series)\b")
+
+
+def _guess_artist(title: str, channel=None, query: str = "") -> str:
+    """ARTIST_DB mein na ho (jaise Tuntun) to channel ka naam artist maano -- bas
+    tab jab wo title / user ki query mein bhi aaye (label channel nahi)."""
+    if isinstance(channel, dict):
+        channel = channel.get("name")
+    ch = _CHANNEL_NOISE.sub(" ", _norm(channel if isinstance(channel, str) else ""))
+    ch = re.sub(r"\s+", " ", ch).strip()
+    if len(ch) < 4 or ch in _LABEL_NAMES or (set(ch.split()) & _LABEL_NAMES):
+        return ""
+    hay = f" {_norm(title)} {_norm(query)} "
+    if f" {ch} " in hay:
+        return ch
+    first = ch.split()[0]
+    if len(first) >= 5 and first not in _LABEL_NAMES and f" {first} " in hay:
+        return ch
+    return ""
+
+
+def _resolve_artist(title: str, channel=None, query: str = "") -> str:
     """extract_artist ka ankaa kabhi gaane ka NAAM hota hai ("Singer - Blue Eyes" mein
     separator ke baad wala hissa).  Anjaan naam tabhi maano jab channel se confirm ho,
     warna autoplay usi gaane ko dobara search karta hai."""
@@ -520,15 +560,17 @@ def _resolve_artist(title: str, channel=None) -> str:
         ch = ch[:-6].strip() if ch.endswith(" topic") else ch
         if not (ch and (artist in ch or ch in artist)):
             artist = ""
-    return artist or _artist_from_channel(channel)
+    return artist or _artist_from_channel(channel) or _guess_artist(title, channel, query)
 
 
-def _context_from_title(title: str, channel=None) -> dict:
+def _context_from_title(title: str, channel=None, query: str = "") -> dict:
+    artist = _resolve_artist(title, channel, query)
     return {
         "title": title,
-        "lang": detect_lang(title),
+        # language pakki na ho aur artist pata ho to "hindi" thopo mat (Tuntun -> Hindi bug)
+        "lang": _lang_hint(title, channel) or ("" if artist else "hindi"),
         "mood": detect_mood(title),
-        "artist": _resolve_artist(title, channel),
+        "artist": artist,
         "movie": detect_movie(title),
     }
 
@@ -591,7 +633,9 @@ async def note_played(
     await add_recent(chat_id, str(vid or ""), title, _resolve_artist(title, channel))
     if autoplayed:
         return
-    doc = _context_from_title(title, channel)
+    cached = _CACHE.get(chat_id) or {}
+    q = cached.get("query", "") if not cached.get("seed_vid") else ""   # user ki taaza query
+    doc = _context_from_title(title, channel, q)
     doc["seed_vid"] = str(vid or "")
     await _save_context(chat_id, doc)
 
@@ -624,22 +668,41 @@ _LANG_FALLBACK = {
 }
 
 
-def build_smart_queries(title, artist, movie, lang, mood, recent_artists_list=None) -> List[str]:
-    queries: List[str] = []
-    recent_artists_list = recent_artists_list or []
+def _clean_queries(queries: List[str]) -> List[str]:
+    final: List[str] = []
+    for q in queries:
+        if any(_has_any([b], q) for b in BAD_WORDS):
+            continue
+        if q not in final and len(q) > 3:
+            final.append(q)
+    return final
 
-    # NOTE: yahan gaane ke apne title se query NAHI banti -- "<title> official song" search
-    # karne par wahi gaana / uske cover (doosri awaaz) wapas aate the.
+
+def build_artist_queries(artist: str, lang: str = "") -> List[str]:
+    """Sirf us artist ke gaane -- koi dusra artist / language nahi."""
+    a = (artist or "").lower().strip()
+    if not a:
+        return []
+    qs = [
+        f"{a} official songs", f"{a} original song", f"{a} new song",
+        f"{a} hit songs", f"{a} superhit songs", f"{a} all songs",
+        f"{a} jukebox", f"{a} top songs", f"{a} latest song",
+    ]
+    if lang:
+        qs += [f"{a} {lang} official hits", f"{a} {lang} songs"]
+    return _clean_queries(qs)
+
+
+def build_smart_queries(title, artist, movie, lang, mood, recent_artists_list=None) -> List[str]:
+    """Artist ho to PEHLE sirf uske queries aate hain (artist-lock).  Dusre artist /
+    language / mood wale queries sabse peeche -- tabhi chalte hain jab artist ke
+    fresh gaane khatam ho jaayein."""
+    # NOTE: gaane ke apne title se query NAHI banti -- wahi gaana / cover wapas aata tha.
+    queries: List[str] = build_artist_queries(artist, lang)
 
     if artist:
-        if recent_artists_list.count(artist.lower()) >= 3:     # same artist bahut ho gaya
-            for sim in SIMILAR_ARTISTS.get(artist.lower(), []):
-                queries.append(f"{sim} {lang} official songs" if lang else f"{sim} official songs")
-                queries.append(f"{sim} original songs")
-        else:
-            queries += [f"{artist} official songs", f"{artist} original song"]
-            if lang:
-                queries.append(f"{artist} {lang} official hits")
+        for sim in SIMILAR_ARTISTS.get(artist.lower(), []):
+            queries.append(f"{sim} official songs")
 
     if movie:
         queries += [f"{movie} official jukebox", f"{movie} all songs", f"{movie} original soundtrack"]
@@ -648,22 +711,28 @@ def build_smart_queries(title, artist, movie, lang, mood, recent_artists_list=No
     if mood in _MOOD_QUERIES:
         queries += _MOOD_QUERIES[mood](lp)
 
-    queries += _LANG_FALLBACK.get(lang, [f"best {lang} songs"])
-
-    final: List[str] = []
-    for q in queries:
-        if any(b in q.lower() for b in BAD_WORDS):
-            continue
-        if q not in final and len(q) > 3:
-            final.append(q)
-    return final[:20]
+    queries += _LANG_FALLBACK.get(lang or "hindi", [f"best {lang} songs"])
+    return _clean_queries(queries)[:24]
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  BEST SONG PICKER  (filters + score)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = None) -> Optional[dict]:
+def _artist_hit(artist: str, title: str, channel: str = "") -> bool:
+    """Title / channel mein ye artist (ya uska alias) hai?"""
+    a = _norm(artist)
+    if not a:
+        return False
+    keys = {a} | {_norm(k) for k in ARTIST_DB.get(a, [])}
+    first = a.split()[0]
+    if a not in ARTIST_DB and len(first) >= 6:        # anjaan artist: "tuntun yadav" -> "tuntun"
+        keys.add(first)
+    return _has_any(sorted(keys), f"{title} {channel}")
+
+
+async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = None,
+                    strict_artist: bool = False) -> Optional[dict]:
     """YouTube results mein se agla gaana (original result dict).  None = koi theek nahi.
 
     Hard filters : bad words, episode, same as last, duration 2-10 min, repeat,
@@ -676,7 +745,7 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
     last_title = ctx.get("title") or ctx.get("query") or ""
     last_vid = ctx.get("seed_vid") or ""
     artist, movie = ctx.get("artist") or "", ctx.get("movie") or ""
-    mood, lang = ctx.get("mood") or "normal", ctx.get("lang") or "hindi"
+    mood, lang = ctx.get("mood") or "normal", ctx.get("lang") or ""
 
     blocked = set(INCOMPATIBLE_LANGS.get(lang, []))
     recent_art = await recent_artists(chat_id)
@@ -702,10 +771,15 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
             continue
         if mood != "devotional" and _has_any(DEVOTIONAL_WORDS, tl):
             continue
-        if blocked and _detect_title_lang(tl) in blocked:
+        ch = _channel_name(r)
+        art_hit = bool(artist) and _artist_hit(artist, raw, ch)
+        if artist and strict_artist and not art_hit:     # artist-lock: dusre artist ka gaana nahi
+            continue
+        # artist ka apna gaana ho to language filter mat lagao (title mein "bhojpuri" likha ho
+        # aur ctx lang galti se "hindi" ho to poora artist reject ho jata tha)
+        if blocked and not art_hit and _detect_title_lang(tl) in blocked:
             continue
 
-        ch = _channel_name(r)
         if any(x in ch for x in SPAM_CHANNEL) or any(x in tl for x in SPAM_TITLE):
             continue
 
@@ -727,13 +801,16 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
             score += 20
         if mood != "normal" and _has_any(MOOD_DB.get(mood, []), tl):
             score += 15
-        if artist and recent_art.count(artist.lower()) >= 3:
-            score -= recent_art.count(artist.lower()) * 10
+        # (same-artist penalty hata di: user ko usi artist ka playlist chahiye)
 
-        scored.append((score, official, r))
+        scored.append((score, official, r, art_hit))
 
     if not scored:
         return None
+    hits = [x for x in scored if x[3]]
+    if artist and hits:                  # artist ke gaane mile to sirf wahi (official-only pool se bhi pehle)
+        scored = hits
+    scored = [x[:3] for x in scored]
     pool = [s for s in scored if s[1]] or scored
     pool.sort(key=lambda x: x[0], reverse=True)
     return random.choice(pool[:3])[2]
@@ -761,13 +838,18 @@ async def next_autoplay_song(
         ctx = await get_context(chat_id)
         if not ctx:
             return None
-        queries = build_smart_queries(
+        artist, lang = ctx.get("artist", ""), ctx.get("lang") or ""
+        all_q = build_smart_queries(
             ctx.get("title") or ctx.get("query") or "latest hindi song",
-            ctx.get("artist", ""), ctx.get("movie", ""), ctx.get("lang", "hindi"),
-            ctx.get("mood", "normal"), await recent_artists(chat_id),
+            artist, ctx.get("movie", ""), lang, ctx.get("mood", "normal"),
         )
-        random.shuffle(queries)
-        queries = queries[:max_queries]
+        art_set = set(build_artist_queries(artist, lang))
+        head = [q for q in all_q if q in art_set]       # sirf artist ke queries
+        tail = [q for q in all_q if q not in art_set]   # fallback (similar artist / lang)
+        random.shuffle(head)
+        random.shuffle(tail)
+        queries = (head + tail)[:max_queries + (4 if head else 0)]
+        n_head = min(len(head), len(queries))
 
         for i in range(0, len(queries), batch):
             pool: List[dict] = []
@@ -777,7 +859,8 @@ async def next_autoplay_song(
                 except Exception as err:
                     LOGGER.warning("autoplay search failed (%r): %s", q, err)
                 await asyncio.sleep(0.15)
-            song = await pick_next(chat_id, pool, ctx)
+            # artist ke queries par strict (dusra artist nahi); fallback par normal
+            song = await pick_next(chat_id, pool, ctx, strict_artist=bool(artist) and i < n_head)
             if song:
                 if reserve:
                     title = song.get("title") or ""
