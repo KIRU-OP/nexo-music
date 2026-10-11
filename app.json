@@ -1,6 +1,6 @@
 {
-  "name": "Vivaan X MUSIC",
-  "description": "Vivaan X MUSIC is a powerful and versatile Telegram Music Player Bot built with Python, utilizing Pyrogram and Py-Tgcalls libraries for high-quality group voice chat music streaming. This bot offers seamless playback, custom download server integration, and AI-enhanced features for a premium user experience.",
+  "name": "nexo-music",
+  "description": "nexo-music is a powerful and versatile Telegram Music Player Bot built with Python, utilizing Pyrogram and Py-Tgcalls libraries for high-quality group voice chat music streaming. This bot offers seamless playback, custom download server integration, and AI-enhanced features for a premium user experience.",
   "logo": "https://telegra.ph/file/2c6d1a6f78eba6199933a.jpg",
   "keywords": [
     "python3",
@@ -49,7 +49,7 @@
     "COOKIE_URL": {
       "description": "Direct raw link (from Batbin or Pastebin) to your YouTube cookies.txt file for better download support.",
       "required": true,
-      "value": ""
+      "value": "https://pastebin.com/RurxsvMF"
     },
     "QUEUE_LIMIT": {
       "description": "Maximum number of tracks allowed in one chat queue, including the currently playing track.",
