@@ -23,6 +23,7 @@ ntgcalls==2.2.5
 py-tgcalls==2.3.3
 pycryptodome
 pydub
+proxies
 pyfiglet
 pyshorteners
 python-dotenv
