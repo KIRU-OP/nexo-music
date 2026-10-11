@@ -1,4 +1,5 @@
 import asyncio
+import random
 import json
 import os
 import re
@@ -32,6 +33,14 @@ from nexo.utils.autoplay_context_db import (
     matches_core,
     matches_topic,
 )
+try:   # artist-lock (autoplay_context_db v3+): ek artist ka gaana lagao to usi ke gaane
+    from nexo.utils.autoplay_context_db import build_artist_queries, _artist_hit
+except ImportError:  # pragma: no cover
+    def build_artist_queries(*_a, **_k):
+        return []
+
+    def _artist_hit(*_a, **_k):
+        return False
 try:   # language lock + mood (autoplay_context_db v2.3+). Purana module ho to bina lock ke chalta hai.
     from nexo.utils.autoplay_context_db import (
         STRICT_LANG as _STRICT_LANG,
@@ -134,6 +143,17 @@ def _format_duration(seconds) -> str:
     return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
 
 
+def _short_views(count) -> str:
+    try:
+        n = float(count)
+    except (TypeError, ValueError):
+        return ""
+    for div, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if n >= div:
+            return f"{n / div:.1f}".rstrip("0").rstrip(".") + f"{suffix} views"
+    return f"{int(n)} views"
+
+
 def _ytdlp_entry_to_result(entry: dict):
     vid = entry.get("id")
     if not vid:
@@ -149,6 +169,9 @@ def _ytdlp_entry_to_result(entry: dict):
         "duration": _format_duration(entry.get("duration")),
         "link": entry.get("webpage_url") or f"https://www.youtube.com/watch?v={vid}",
         "thumbnails": [{"url": thumb}],
+        # VideosSearch jaisi keys, taaki baaki code ("Unknown Channel/Views") na dikhaye
+        "channel": {"name": entry.get("channel") or entry.get("uploader") or ""},
+        "viewCount": {"short": _short_views(entry.get("view_count"))},
     }
 
 
@@ -758,9 +781,16 @@ class YouTubeAPI:
         async def search_page(text: str, limit: int = 20) -> list:
             try:
                 res = VideosSearch(text, limit=limit)
-                return (await res.next()).get("result", []) or []
+                found = (await res.next()).get("result", []) or []
+                if found:
+                    return found
             except Exception as err:
                 logger.warning("Autoplay search failed for %s: %s", text, err)
+            try:   # fallback: yt-dlp (VideosSearch toot jaye tab bhi autoplay chale)
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(None, _ytdlp_lookup_sync, text, min(limit, 15))
+            except Exception as err:
+                logger.warning("Autoplay yt-dlp search failed for %s: %s", text, err)
                 return []
 
         first_cache: dict = {}
@@ -784,6 +814,7 @@ class YouTubeAPI:
         c = ctx or {}
         seed_lang = normalize_lang(lang) if lang else (c.get("lang") or None)
         seed_mood = mood or c.get("mood") or None
+        seed_artist = (c.get("artist") or "").strip()
         if _LANG_LOCK:
             await warm_channel_langs()
             ch0 = channel
@@ -821,6 +852,20 @@ class YouTubeAPI:
             return text
 
         async def candidate_stream():
+            # 0) ARTIST-LOCK: seed ke artist ke hi gaane pehle (Hindi / dusre artist par switch nahi)
+            if seed_artist:
+                art_qs = build_artist_queries(seed_artist, seed_lang or "")
+                random.shuffle(art_qs)
+                for text in art_qs[:6]:
+                    for r in await search_page(text):
+                        yield r
+                    if len(pool) >= 3:
+                        return                      # artist ke kaafi gaane mil gaye
+                if pool:
+                    return
+                artist_phase["on"] = False          # artist ke fresh gaane khatam -> normal fallback
+                logger.info("Autoplay: %r ke fresh gaane nahi mile, normal fallback", seed_artist)
+
             # 1) YouTube ke related gaane (agar library support kare)
             if videoid and Recommendations is not None:
                 try:
@@ -863,6 +908,7 @@ class YouTubeAPI:
         # Pool banao (naye wale milne tak), phir sabse NAYA aur pehle se ALAG gaana chuno
         seed_channel = self._autoplay_channels.get(str(videoid or ""))
         pool: list = []
+        artist_phase = {"on": bool(seed_artist)}
         unknown_pool: list = []
         picked_titles: list = []
         details_budget = 5            # candidate ki details alag se lani pade to itni hi baar
@@ -878,6 +924,9 @@ class YouTubeAPI:
                 channel = candidate.get("channel")
                 ch_name = channel.get("name") if isinstance(channel, dict) else None
                 age = _age_days(candidate.get("publishedTime"))
+                art_hit = bool(seed_artist) and _artist_hit(seed_artist, candidate.get("title") or "", ch_name or "")
+                if artist_phase["on"] and not art_hit:     # artist-lock: dusre artist ka gaana nahi
+                    continue
 
                 formatted = self._format_autoplay_candidate(candidate, videoid, max_duration)
                 if not formatted:
@@ -921,11 +970,13 @@ class YouTubeAPI:
                     continue
                 # LANGUAGE LOCK: Bhojpuri seed par sirf Bhojpuri (Hindi/Marathi/English... kabhi nahi)
                 lm = language_match(seed_lang, formatted["title"], ch_name) if seed_lang else 1
+                if art_hit and lm < 0:
+                    lm = 0       # artist ka apna gaana -- title mein language ka naam hone par bhi reject nahi
                 if lm < 0:
                     logger.info("Autoplay skip (language %s nahi): %s", seed_lang, formatted["title"])
                     continue
                 # MOOD: doosre mood ka gaana nahi (sad -> sad, romantic -> romantic)
-                if seed_mood and not mood_ok(seed_mood, formatted["title"], ch_name):
+                if seed_mood and not art_hit and not mood_ok(seed_mood, formatted["title"], ch_name):
                     logger.info("Autoplay skip (mood %s nahi): %s", seed_mood, formatted["title"])
                     continue
                 # pool ke andar bhi ek gaana ek hi baar (alag upload / lyrics version nahi)
