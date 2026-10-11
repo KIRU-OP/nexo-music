@@ -22,6 +22,7 @@ playeddb = mongodb.autoplay_played
 _CACHE: Dict[int, dict] = {}      # chat_id -> context
 _RECENT: Dict[int, List[dict]] = {}   # chat_id -> played items
 _LOCKS: Dict[int, asyncio.Lock] = {}
+_QUERY_USED: Dict[int, List[str]] = {}  # chat_id -> chal chuke queries (rotation ke liye)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -372,44 +373,101 @@ def _artist_names() -> frozenset:
     return _ARTIST_SET_CACHE[1]
 
 
-def _clean_segment(seg: str) -> str:
-    t = re.sub(r"[^\w\s]", " ", seg)
-    for w in _NOISE_WORDS + _VERSION_NOISE:
-        t = re.sub(rf"\b{w}\b", " ", t)
-    return re.sub(r"\s+", " ", t).strip()
+_GENERIC_TOKENS = set(_NOISE_WORDS) | set(_VERSION_NOISE) | {
+    "bhojpuri", "bhajpuri", "haryanvi", "punjabi", "hindi", "bollywood", "gujarati",
+    "tamil", "telugu", "bengali", "marathi", "urdu", "english", "songs", "hit", "hits",
+    "superhit", "jukebox", "from", "feat", "ft", "featuring", "vs", "movie", "film",
+}
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_PHRASE_CACHE = (0, frozenset())
 
 
-def title_keys(title: str) -> List[str]:
-    """Title ke saare 'gaane ke naam' wale hisse.
+def _name_variants(name: str) -> set:
+    """"khesari lal yadav" -> {"khesari lal yadav", "khesari lal", "khesari"}.
+    Title mein aksar adhoora naam hota hai (#Khesari Lal) -- wo bhi artist hi hai."""
+    toks = name.split()
+    if not toks:
+        return set()
+    out = {name}
+    if len(toks) >= 2:
+        out.add(" ".join(toks[:2]))
+        if len(toks[0]) >= 5:
+            out.add(toks[0])
+    return out
 
-    "Yo Yo Honey Singh - Blue Eyes (Official Video)" -> ["blue eyes"]
-    "Blue Eyes (Female Version) | Singer X"        -> ["blue eyes", "singer x"]
-    Known artist / label wale hisse hata diye jaate hain, taaki "Artist - Song" aur
-    "Song - Artist" dono layout mein asli gaane ka naam compare ho.
+
+def _artist_phrases() -> frozenset:
+    global _PHRASE_CACHE
+    n = len(ARTIST_DB)
+    if _PHRASE_CACHE[0] != n:
+        phrases: set = set()
+        for name in _artist_names():
+            phrases |= _name_variants(name)
+        phrases.discard("")
+        _PHRASE_CACHE = (n, frozenset(phrases))
+    return _PHRASE_CACHE[1]
+
+
+def _strip_phrases(tokens: List[str], phrases) -> List[str]:
+    """Tokens mein se artist ke naam (poore ya adhoore) nikaal do."""
+    out: List[str] = []
+    i = 0
+    while i < len(tokens):
+        for n in range(min(5, len(tokens) - i), 0, -1):
+            if " ".join(tokens[i:i + n]) in phrases:
+                i += n
+                break
+        else:
+            out.append(tokens[i])
+            i += 1
+    return out
+
+
+def title_keys(title: str, artist: str = "") -> List[str]:
+    """Title ke saare 'gaane ke naam' wale hisse -- artist / hashtag / label / movie hata kar.
+
+    "#Video #Khesari Lal #Aa Gaiel Palang Sagwan Ke"   -> ["aa gaiel palang sagwan ke"]
+    'Palang Sagwan Ke (From "Pyaar Ka Rang")'          -> ["palang sagwan ke"]
+    "Yo Yo Honey Singh - Blue Eyes (Official Video)"   -> ["blue eyes"]
+
+    artist: ctx wala artist (ARTIST_DB mein na ho tab bhi) -- uska naam bhi hata diya jata hai.
     """
     if not title:
         return []
     t = _ascii(title).lower()
+    t = re.sub(r"https?://\S+", " ", t)
     t = re.sub(r"[\(\[\{][^\)\]\}]*[\)\]\}]", " ", t)
+    a = _norm(artist)
+    phrases = _artist_phrases() | _name_variants(a) if a else _artist_phrases()
     names = _artist_names()
     keys: List[str] = []
     for seg in _SPLIT_RE.split(t):
-        k = _clean_segment(seg)
-        if len(k) < 4 or k in names or k in _GENERIC_KEYS or (set(k.split()) & _LABEL_TOKENS):
+        toks = _TOKEN_RE.findall(seg)
+        if toks and toks[0] == "from":          # "- From Movie X": gaane ka naam nahi
+            continue
+        toks = [w for w in _strip_phrases(toks, phrases) if w not in _GENERIC_TOKENS]
+        k = " ".join(toks)
+        if len(k) < 4 or k in names or (set(toks) & _LABEL_TOKENS):
             continue
         if k not in keys:
             keys.append(k)
     return keys
 
 
-def normalize_title(title: str) -> str:
+def normalize_title(title: str, artist: str = "") -> str:
     """Purana API: gaane ka ek saaf naam (pehla key)."""
-    keys = title_keys(title)
+    keys = title_keys(title, artist)
     return keys[0] if keys else ""
 
 
+def _tok_eq(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    return len(a) >= 5 and len(b) >= 5 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.85
+
+
 def _same_song(stored: str, candidate: str) -> bool:
-    """Exact / prefix (tokens ke hisaab se) / spelling-similar / pehla lamba shabd same."""
+    """Exact / prefix / spelling-similar / chhota naam bade ke andar / pehla lamba shabd same."""
     if not stored or not candidate or len(stored) < 4 or len(candidate) < 4:
         return False
     if stored == candidate:
@@ -420,6 +478,10 @@ def _same_song(stored: str, candidate: str) -> bool:
     if len(sj) >= 8 and long_[:len(short)] == short:
         return True
     if len(sj) >= 5 and difflib.SequenceMatcher(None, stored, candidate).ratio() >= 0.88:
+        return True
+    # chhote naam ke saare shabd bade naam mein hain (extra shabd: "aa", movie, hashtag)
+    ss = set(short)
+    if len("".join(ss)) >= 10 and all(any(_tok_eq(t, u) for u in long_) for t in ss):
         return True
     return short[0] == long_[0] and len(short[0]) >= 7
 
@@ -467,9 +529,10 @@ def _repeat_in(items: List[dict], vidid: str, keys: List[str]) -> bool:
     return False
 
 
-async def is_repeat(chat_id: int, vidid: str, title: str = "") -> bool:
+async def is_repeat(chat_id: int, vidid: str, title: str = "", artist: str = "") -> bool:
     items = await _load_recent(int(chat_id))
-    return _repeat_in(items, vidid, title_keys(title))
+    artist = artist or (_CACHE.get(int(chat_id)) or {}).get("artist", "")
+    return _repeat_in(items, vidid, title_keys(title, artist))
 
 
 async def has_played(chat_id, vid, title=None, channel=None, duration=None) -> bool:
@@ -484,10 +547,11 @@ async def add_recent(chat_id: int, vidid: str, title: str = "", artist: str = ""
     items = await _load_recent(chat_id)
     if items and items[-1].get("id") == vidid:      # reserve ho chuka -- dobara mat jodo
         return
+    keys = title_keys(title, artist)
     items.append({
         "id": vidid,
-        "title": normalize_title(title),
-        "keys": title_keys(title),
+        "title": keys[0] if keys else "",
+        "keys": keys,
         "artist": (artist or "").lower(),
         "ts": time.time(),
     })
@@ -678,18 +742,29 @@ def _clean_queries(queries: List[str]) -> List[str]:
     return final
 
 
+_YEARS = list(range(2005, 2027))
+
+
 def build_artist_queries(artist: str, lang: str = "") -> List[str]:
-    """Sirf us artist ke gaane -- koi dusra artist / language nahi."""
+    """Sirf us artist ke gaane -- koi dusra artist / language nahi.
+    Bahut saare alag-alag queries (purane gaane, saal-wise, mood-wise) taaki artist ka
+    POORA catalogue mile, sirf top hits nahi."""
     a = (artist or "").lower().strip()
     if not a:
         return []
     qs = [
         f"{a} official songs", f"{a} original song", f"{a} new song",
         f"{a} hit songs", f"{a} superhit songs", f"{a} all songs",
-        f"{a} jukebox", f"{a} top songs", f"{a} latest song",
+        f"{a} top songs", f"{a} latest song",
+        # purane / chhupe hue gaane
+        f"{a} old songs", f"{a} purane gane", f"{a} old hit songs", f"{a} superhit old songs",
+        f"{a} full video song", f"{a} film songs", f"{a} duet songs",
+        f"{a} romantic songs", f"{a} love songs", f"{a} sad songs", f"{a} dard bhare gane",
+        f"{a} dance songs", f"{a} masti songs", f"{a} shaadi songs",
     ]
+    qs += [f"{a} {y} song" for y in _YEARS]          # saal-wise: har daur ke gaane
     if lang:
-        qs += [f"{a} {lang} official hits", f"{a} {lang} songs"]
+        qs += [f"{a} {lang} official hits", f"{a} {lang} songs", f"{a} {lang} old songs"]
     return _clean_queries(qs)
 
 
@@ -712,7 +787,7 @@ def build_smart_queries(title, artist, movie, lang, mood, recent_artists_list=No
         queries += _MOOD_QUERIES[mood](lp)
 
     queries += _LANG_FALLBACK.get(lang or "hindi", [f"best {lang} songs"])
-    return _clean_queries(queries)[:24]
+    return _clean_queries(queries)[:90]
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -750,7 +825,7 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
     blocked = set(INCOMPATIBLE_LANGS.get(lang, []))
     recent_art = await recent_artists(chat_id)
     history = await _load_recent(chat_id)
-    seed_keys = title_keys(last_title) + title_keys(ctx.get("query") or "")
+    seed_keys = title_keys(last_title, artist) + title_keys(ctx.get("query") or "", artist)
     bad = [b for b in BAD_WORDS if not _has_any([b], last_title)]   # user ne khud maanga ho to allow
 
     scored = []
@@ -761,7 +836,7 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
             continue
         if any(_has_any([b], tl) for b in bad) or _EPISODE_RE.search(tl):
             continue
-        ckeys = title_keys(raw)
+        ckeys = title_keys(raw, artist)
         if seed_keys and _keys_match(seed_keys, ckeys):      # seed gaana / uska koi bhi version
             continue
         sec = _result_duration(r)
@@ -811,9 +886,9 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
     if artist and hits:                  # artist ke gaane mile to sirf wahi (official-only pool se bhi pehle)
         scored = hits
     scored = [x[:3] for x in scored]
-    pool = [s for s in scored if s[1]] or scored
-    pool.sort(key=lambda x: x[0], reverse=True)
-    return random.choice(pool[:3])[2]
+    # official sirf bonus (score mein) -- exclusive nahi, warna purane gaane (chhote channels) kabhi nahi bajte
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return random.choice(scored[:10])[2]
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -822,7 +897,7 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
 
 async def next_autoplay_song(
     chat_id: int, search_fn, max_queries: int = 12, batch: int = 3,
-    reserve: bool = True, limit: int = 8,
+    reserve: bool = True, limit: int = 20,
     max_attempts: Optional[int] = None, use_mix: Optional[bool] = None,   # purane kwargs (ignore/alias)
 ) -> Optional[dict]:
     """Agla FRESH gaana.  search_fn: async def search_fn(query) -> [result dict]
@@ -846,10 +921,18 @@ async def next_autoplay_song(
         art_set = set(build_artist_queries(artist, lang))
         head = [q for q in all_q if q in art_set]       # sirf artist ke queries
         tail = [q for q in all_q if q not in art_set]   # fallback (similar artist / lang)
-        random.shuffle(head)
+        # Rotation: jo queries abhi nahi chali wo pehle -> har baar catalogue ka naya hissa
+        used = _QUERY_USED.setdefault(chat_id, [])
+        if head and all(q in used for q in head):
+            used.clear()                                  # poora chakkar ho gaya, dobara shuru
+        fresh_h = [q for q in head if q not in used]
+        stale_h = [q for q in head if q in used]
+        random.shuffle(fresh_h)
+        random.shuffle(stale_h)
         random.shuffle(tail)
-        queries = (head + tail)[:max_queries + (4 if head else 0)]
-        n_head = min(len(head), len(queries))
+        head = fresh_h + stale_h                          # artist ke SAARE queries tail se pehle
+        queries = head + tail[:max_queries]
+        n_head = len(head)
 
         for i in range(0, len(queries), batch):
             pool: List[dict] = []
@@ -859,6 +942,8 @@ async def next_autoplay_song(
                 except Exception as err:
                     LOGGER.warning("autoplay search failed (%r): %s", q, err)
                 await asyncio.sleep(0.15)
+            used.extend(q for q in queries[i:i + batch] if q in art_set)
+            del used[:-300]
             # artist ke queries par strict (dusra artist nahi); fallback par normal
             song = await pick_next(chat_id, pool, ctx, strict_artist=bool(artist) and i < n_head)
             if song:
