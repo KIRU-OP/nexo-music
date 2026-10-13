@@ -1060,6 +1060,8 @@ async def note_played(
     doc = _context_from_title(title, channel, q)
     doc["seed_vid"] = str(vid or "")
     await _save_context(chat_id, doc)
+    LOGGER.info("Autoplay seed | chat_id=%s | %r | channel=%r | lang=%r artist=%r remix=%s",
+                chat_id, title, _chan_str(channel), doc.get("lang"), doc.get("artist"), doc.get("remix"))
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1209,7 +1211,7 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
     artist, movie = ctx.get("artist") or "", ctx.get("movie") or ""
     mood, lang = ctx.get("mood") or "normal", ctx.get("lang") or ""
 
-    blocked = set(INCOMPATIBLE_LANGS.get(lang, []))
+    blocked = set(INCOMPATIBLE_LANGS.get(lang, [])) if lang else {"english"}   # language anjaan ho tab bhi English nahi
     recent_art = await recent_artists(chat_id)
     history = await _load_recent(chat_id)
     seed_keys = title_keys(last_title, artist) + title_keys(ctx.get("query") or "", artist)
@@ -1296,6 +1298,33 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
 #  AUTOPLAY  (naya search jab tak fresh gaana na mile)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+async def _probe_lang(chat_id: int, ctx: dict, search_fn) -> str:
+    """Seed ki language title/channel se na mile to seed ko hi YouTube par search karo aur
+    top results ki language ka vote lo (Bhojpuri gaana -> results mein Bhojpuri channel/artist).
+    Seed per ek hi baar chalta hai; natija context mein save."""
+    seed = ctx.get("title") or ctx.get("query") or ""
+    if not seed or ctx.get("lang_probed") == seed:
+        return ctx.get("lang") or ""
+    try:
+        res = await search_fn(seed) or []
+    except Exception as err:
+        LOGGER.warning("autoplay lang probe failed: %s", err)
+        res = []
+    votes: Dict[str, int] = {}
+    for r in res[:12]:
+        h = _lang_hint(r.get("title") or "", _channel_name(r))
+        if h:
+            votes[h] = votes.get(h, 0) + 1
+    lang = ""
+    if votes:
+        top, n = max(votes.items(), key=lambda kv: kv[1])
+        if n >= 2 and n * 2 >= sum(votes.values()):
+            lang = top
+    await _save_context(int(chat_id), {"lang": lang, "lang_probed": seed})
+    LOGGER.info("Autoplay lang probe | chat_id=%s | %r -> %r (%s)", chat_id, seed, lang, votes)
+    return lang
+
+
 async def next_autoplay_song(
     chat_id: int, search_fn, max_queries: int = 12, batch: int = 3,
     reserve: bool = True, limit: int = 20,
@@ -1314,6 +1343,9 @@ async def next_autoplay_song(
         ctx = await get_context(chat_id)
         if not ctx:
             return None
+        if not (ctx.get("lang") or ""):
+            await _probe_lang(chat_id, ctx, search_fn)
+            ctx = await get_context(chat_id) or ctx
         artist, lang = ctx.get("artist", ""), ctx.get("lang") or ""
         all_q = build_smart_queries(
             ctx.get("title") or ctx.get("query") or "latest hindi song",
