@@ -1,18 +1,3 @@
-"""
-Autoplay data: artists, aliases, topics (mood / playlist / devotional / festival ...).
-
-Isko `nexo/utils/autoplay_data.py` naam se rakho.
-
-NOTE: YouTube par har artist ka naam is list mein nahi aa sakta. Isliye 3 layer hain:
-  1. Ye built-in list (niche, sab languages)
-  2. Jo artist is list mein nahi, bot usse YouTube search se pehchanta hai
-     aur `autoplay_artists` collection mein seekh leta hai (agli baar seedha pehchan lega)
-  3. Nayi list khud jodni ho to `ARTISTS` mein naam daal do ya
-     autoplay_context_db.add_artist("naam", ["alias", ...]) call karo.
-
-Naam comma se alag, kisi bhi spelling mein (lowercase ya capital, farq nahi padta).
-"""
-
 ARTISTS = {
     # ------------------------------------------------------------ BHOJPURI
     "bhojpuri": """
