@@ -39,7 +39,7 @@ DEVOTIONAL_WORDS = [
 ]
 
 LANG_TITLE_INDICATORS = {
-    "bhojpuri": ["bhojpuri", ,"tuntun Yadav" "pawan singh", "khesari", "pramod premi"],
+    "bhojpuri": ["bhojpuri", "pawan singh", "khesari", "pramod premi"],
     "haryanvi": ["haryanvi", "mewati", "khasa aala chahar", "masoom sharma"],
     "gujarati": ["gujarati", "garba", "gujju"],
     "tamil":    ["tamil", "kollywood"],
@@ -437,25 +437,35 @@ _NAME_SUFFIX_NOISE = {
     "malayalam", "japanese", "spanish", "studio",
 }
 _EXT_LABELS: List[str] = []
+_STOP_SUFFIX = {"studio"}                       # "Coke Studio" -> label hai, artist nahi
+# "Weak" naam: akela aam shabd / bahut chhota naam ("king", "drake", "bts").  Ye bhi DB mein jaate hain
+# (kuch chhoota nahi) par sirf SAAF query ("drake songs") ya channel ("Drake - Topic") se pehchane jaate hain,
+# warna "King Kong" / "Rose Garden" jaise titles galat artist ban jate.
+_WEAK_ARTISTS: set = set()
+_WEAK_LANG: Dict[str, str] = {}
+_EXT_STATS = {"names": 0, "weak": 0, "weak_alias": 0}
 
 
 def _split_names(block) -> List[str]:
     return [n.strip() for n in str(block).replace("\n", " ").split(",") if n.strip()]
 
 
-def _clean_ext_name(raw: str, indian: bool) -> str:
-    if re.search(r"[^\w\s.\-']", raw, re.UNICODE):          # "Kr$na" jaise naam chhod do
-        return ""
-    n = _norm(raw)
-    toks = n.split()
+def _clean_ext_name(raw: str, indian: bool):
+    """-> (naam, weak).  Naam khali = sach mein bekaar (label / junk)."""
+    raw = raw.replace("$", "s")                               # "Kr$na" -> "Krsna"
+    if re.search(r"[^\w\s.\-']", raw, re.UNICODE):
+        return "", False
+    toks = _norm(raw).split()
+    while len(toks) > 1 and toks[-1] in _NAME_SUFFIX_NOISE:   # "gopi sundar tamil" -> "gopi sundar"
+        if toks[-1] in _STOP_SUFFIX:
+            return "", False
+        toks.pop()
+    n = " ".join(toks)
     if not toks or len(n) < 2:
-        return ""
+        return "", False
     if len(toks) == 1:
-        if n in _COMMON_NAME_STOP or (not indian and len(n) < 6):
-            return ""
-    elif toks[-1] in _NAME_SUFFIX_NOISE:                      # "arijit singh english" -> base naam kaafi hai
-        return ""
-    return n
+        return n, (n in _COMMON_NAME_STOP or (not indian and len(n) < 6))
+    return n, False
 
 
 def _merge_artists_block(artists: dict, aliases: dict) -> None:
@@ -477,6 +487,7 @@ def _merge_artists_block(artists: dict, aliases: dict) -> None:
 
     neutral = set(_NEUTRAL_ARTISTS) | {"ar rahman"}
     taken = {n for lst in ARTIST_LANG.values() for n in lst}
+    known_keys = {k for ks in ARTIST_DB.values() for k in ks}
 
     for cat, block in artists.items():
         names = _split_names(block)
@@ -491,10 +502,21 @@ def _merge_artists_block(artists: dict, aliases: dict) -> None:
         for raw in names:
             if _norm(raw) in switches:
                 lang = switches[_norm(raw)]
-            n = _clean_ext_name(raw, indian)
+            n, weak = _clean_ext_name(raw, indian)
             if not n or redirect.get(n, n) != n:
                 continue
-            if cat in _CAT_NEUTRAL or n in neutral or not lang:
+            _EXT_STATS["names"] += 1
+            neutral_cat = cat in _CAT_NEUTRAL or n in neutral or not lang
+            if weak:
+                if n in taken or n in ARTIST_DB or n in known_keys:
+                    continue
+                ARTIST_DB[n] = [n]
+                _WEAK_ARTISTS.add(n)
+                _EXT_STATS["weak"] += 1
+                if not neutral_cat:
+                    _WEAK_LANG[n] = lang
+                continue
+            if neutral_cat:
                 ARTIST_DB.setdefault(n, [n, f"{n} song"])
             elif n not in taken:
                 _add_unique(ARTIST_LANG.setdefault(lang, []), [n])
@@ -504,10 +526,20 @@ def _merge_artists_block(artists: dict, aliases: dict) -> None:
         if target in _EXT_LABELS or any(m in _EXT_LABELS for m in members):
             _EXT_LABELS.extend(members)
             continue
-        good = [m for m in members if m != target and
-                (" " in m or (len(m) >= 6 and m not in _COMMON_NAME_STOP))]
-        if good or target in ARTIST_DB or target in taken or target in ext_norm:
-            _add_unique(ARTIST_DB.setdefault(target, [target, f"{target} song"]), good)
+        good, weak_al = [], []
+        for m in members:
+            if m == target:
+                continue
+            if " " in m or (len(m) >= 6 and m not in _COMMON_NAME_STOP):
+                good.append(m)
+            elif len(m) >= 3 and m not in known_keys:        # "sidhu", "lata", "rafi": weak alias
+                weak_al.append(m)
+        if good or weak_al or target in ARTIST_DB or target in taken or target in ext_norm:
+            lst = ARTIST_DB.setdefault(target, [target, f"{target} song"])
+            _add_unique(lst, good)
+            _add_unique(lst, weak_al)
+            _WEAK_ARTISTS.update(weak_al)
+            _EXT_STATS["weak_alias"] += len(weak_al)
 
 
 def _merge_external(ext) -> None:
@@ -541,8 +573,11 @@ LANG_DB.setdefault("odia", ["odia", "oriya"])
 try:
     from nexo.utils import autoplay_data as _EXT_DATA
     _merge_external(_EXT_DATA)
-except Exception as _err:           # file na ho / alag format ho -- koi baat nahi
-    LOGGER.info("autoplay_data merge skipped: %s", _err)
+except Exception as _err:           # file na ho / alag format ho
+    LOGGER.warning("autoplay_data merge skipped: %s", _err)
+else:
+    LOGGER.info("autoplay_data merged | names=%d weak_names=%d weak_aliases=%d",
+                _EXT_STATS["names"], _EXT_STATS["weak"], _EXT_STATS["weak_alias"])
 _extend_databases()
 
 
@@ -553,7 +588,17 @@ def _artist_lang(artist: Optional[str]) -> str:
     for lang, names in ARTIST_LANG.items():
         if a in names:
             return lang
-    return ""
+    return _WEAK_LANG.get(a, "")
+
+
+_QUERY_FILLER = {"song", "songs", "gana", "gane", "gaana", "gaane", "new", "latest", "hit", "hits",
+                 "play", "official", "video", "audio", "music", "all", "top", "best", "full",
+                 "by", "of", "superhit", "old"}
+
+
+def _weak_ok(key: str, padded: str) -> bool:
+    """Weak naam tabhi artist jab text sirf wahi naam + filler ho ("drake songs")."""
+    return [t for t in padded.split() if t not in _QUERY_FILLER] == key.split()
 
 
 def _best_artist_match(padded: str):
@@ -563,6 +608,8 @@ def _best_artist_match(padded: str):
     for artist, keys in ARTIST_DB.items():
         for k in keys:
             if len(k) > blen and f" {k} " in padded:
+                if k in _WEAK_ARTISTS and not _weak_ok(k, padded):
+                    continue
                 best, blen = artist, len(k)
     return best, blen
 
@@ -740,6 +787,8 @@ def _artist_phrases() -> frozenset:
     if _PHRASE_CACHE[0] != n:
         phrases: set = set()
         for name in _artist_names():
+            if name in _WEAK_ARTISTS:        # "king"/"rose" song-title se na hatein (false repeat se bachao)
+                continue
             phrases |= _name_variants(name)
         phrases.discard("")
         _PHRASE_CACHE = (n, frozenset(phrases))
@@ -924,8 +973,11 @@ def _artist_from_channel(channel) -> str:
     if ch.endswith(" topic"):                       # "Yo Yo Honey Singh - Topic"
         return ch[:-6].strip()
     padded = f" {ch} "
+    clean = re.sub(r"\s+", " ", _CHANNEL_NOISE.sub(" ", ch)).strip()
     for name in _artist_names():
         if name and f" {name} " in padded:
+            if name in _WEAK_ARTISTS and clean != name:      # "Future Music Studio" != artist "future"
+                continue
             return name
     return ""
 
