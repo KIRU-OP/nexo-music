@@ -187,6 +187,13 @@ BAD_WORDS = [
     "version", "reprise", "unplugged", "acoustic", "mashup", "remake",
     "recreated", "tribute", "female", "rework", "refix", "remix",
 ]
+# Remix / DJ / lofi family: seed gaana khud remix ya DJ ho tab bhi autoplay mein ye NAHI aayenge.
+# (Pehle seed mein "remix"/"dj" hota tha to ye filter hat jata tha -> remix ke baad remix chalta tha.)
+REMIX_FAMILY = [
+    "remix", "dj remix", "dj", "mix", "lofi", "slowed", "reverb", "8d", "bass boosted",
+    "sped up", "mashup", "hard bass", "jhan jhan bass", "vibration", "jbl", "dholki mix",
+]
+BAD_WORDS += [w for w in REMIX_FAMILY if w not in BAD_WORDS]
 SPAM_TITLE = ["lyrical", "lyrics video", "lyric video", "cover by", "remix by", "dj remix"]
 SPAM_CHANNEL = ["lyrics", "lofi", "slowed", "reverb", "cover", "karaoke", "remix", "8d"]
 
@@ -249,6 +256,334 @@ def _result_duration(r: dict) -> int:
     return parse_duration(r.get("duration_sec") or r.get("duration") or r.get("duration_min"))
 
 
+def _pad(text: Optional[str]) -> str:
+    """Ek baar normalize karke ' text ' -- bade loops mein har key par dobara _norm na ho."""
+    return f" {_norm(text)} "
+
+
+def _in_pad(keys: List[str], padded: str) -> bool:
+    return any(f" {k} " in padded for k in keys)
+
+
+def _chan_str(channel) -> str:
+    if isinstance(channel, dict):
+        channel = channel.get("name")
+    return channel if isinstance(channel, str) else ""
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  EXTENDED ARTIST DATABASE
+#  (upar ke dicts ke saath merge hota hai; nexo/utils/autoplay_data.py ho to wo bhi)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_EXTRA_ARTIST_LANG = {
+    "hindi": [
+        "asha bhosle", "mukesh", "manna dey", "hemant kumar", "talat mahmood", "mahendra kapoor",
+        "kk", "kunal ganjawala", "sukhwinder singh", "abhijeet bhattacharya", "babul supriyo",
+        "mithoon", "vishal mishra", "stebin ben", "ankit tiwari", "tulsi kumar", "tony kakkar",
+        "payal dev", "palak muchhal", "monali thakur", "shalmali kholgade", "kanika kapoor",
+        "nikhita gandhi", "asees kaur", "dhvani bhanushali", "jonita gandhi", "harshdeep kaur",
+        "rekha bhardwaj", "vishal dadlani", "benny dayal", "papon", "javed ali", "ash king",
+        "mika singh", "daler mehndi", "himesh reshammiya", "sachet tandon", "parampara thakur",
+        "jasleen royal", "anuv jain", "yasser desai", "rochak kohli", "tanishk bagchi",
+        "sajid wajid", "anu malik", "nadeem shravan", "jatin lalit", "anand milind",
+        "laxmikant pyarelal", "rd burman", "sd burman", "bappi lahiri", "kailash kher",
+        "mohammed irfan", "anuradha paudwal", "sadhana sargam", "kavita krishnamurthy",
+        "jagjit singh", "pankaj udhas", "salim sulaiman", "sanam puri", "gajendra verma",
+        "amaal mallik", "meet bros", "arko", "akhil sachdeva", "prateek kuhad", "raftaar",
+        "emiway bantai", "mc stan", "sonu kakkar", "shahid mallya",
+    ],
+    "punjabi": [
+        "gippy grewal", "jazzy b", "babbu maan", "gurdas maan", "surjit bindrakhia",
+        "amrinder gill", "sharry mann", "kulwinder billa", "jassie gill", "jass manak",
+        "parmish verma", "sunanda sharma", "nimrat khaira", "himmat sandhu", "bohemia",
+        "kaka", "r nait", "babbal rai", "gur sidhu", "sunny malton", "miss pooja",
+        "nachhatar gill", "harbhajan mann", "hans raj hans", "sukhshinder shinda",
+        "satinder sartaaj", "tarsem jassar", "shree brar", "jordan sandhu", "harf cheema",
+        "afsana khan", "inderjit nikku",
+    ],
+    "bhojpuri": [
+        "ravi kishan", "awadhesh premi yadav", "gunjan singh", "antra singh priyanka",
+        "priyanka singh", "kalpana patowary", "indu sonali", "khushboo uttam", "khushboo jain",
+        "alka jha", "kavita yadav", "mohan rathore", "rakesh mishra", "vishal gagan",
+        "bharat sharma vyas", "deepak dildar", "akshara singh", "amrapali dubey",
+        "kajal raghwani", "yamini singh", "chandan chanchal", "sunil chhaila bihari",
+        "pradeep pandey chintu", "golu gold", "raushan rohi", "rani chatterjee",
+        "shivani singh", "anu dubey", "lado madheshiya", "ajit anand", "alok kumar",
+    ],
+    "haryanvi": [
+        "vijay varma", "ajay hooda", "pranjal dahiya", "ruchika jangid", "sapna choudhary",
+        "diler kharkiya", "gulzaar chhaniwala", "amit saini rohtakiya", "ak jatti",
+        "sandeep surila", "ndee kundu", "anjali raghav", "manjeet panchal", "pardeep boora",
+        "narender bhagana", "mohit sharma",
+    ],
+    "tamil": [
+        "yuvan shankar raja", "harris jayaraj", "ilaiyaraaja", "santhosh narayanan",
+        "hiphop tamizha", "d imman", "vijay antony", "haricharan",
+    ],
+    "telugu": [
+        "mm keeravani", "anup rubens", "ram miryala", "mangli", "rahul sipligunj",
+        "anurag kulkarni", "sunitha", "geetha madhuri", "kaala bhairava", "hemachandra",
+    ],
+    "bengali": [
+        "anupam roy", "nachiketa chakraborty", "lopamudra mitra", "kabir suman",
+        "hemanta mukherjee", "sandhya mukhopadhyay",
+    ],
+    "marathi": [
+        "ajay atul", "adarsh shinde", "anand shinde", "avadhoot gupte", "vaishali samant",
+        "swapnil bandodkar", "bela shende", "jasraj joshi", "ajay gogavale",
+    ],
+    "gujarati": [
+        "kinjal dave", "geeta rabari", "kirtidan gadhvi", "jignesh kaviraj", "arvind barot",
+        "aishwarya majmudar", "parthiv gohil", "osman mir", "rakesh barot", "vijay suvada",
+        "falguni pathak", "atul purohit",
+    ],
+    "urdu": [
+        "nusrat fateh ali khan", "abida parveen", "mehdi hassan", "ghulam ali",
+    ],
+    "english": [
+        "dua lipa", "bruno mars", "coldplay", "imagine dragons", "maroon 5", "adele",
+        "shawn mendes", "charlie puth", "selena gomez", "post malone", "harry styles",
+        "olivia rodrigo", "sabrina carpenter", "lady gaga", "rihanna", "katy perry",
+        "one direction", "linkin park", "alan walker", "marshmello", "martin garrix",
+        "the chainsmokers", "david guetta", "calvin harris", "kygo", "avicii",
+        "enrique iglesias", "shakira", "michael jackson", "sam smith", "lewis capaldi",
+        "jason derulo", "camila cabello", "demi lovato", "miley cyrus", "ellie goulding",
+        "zayn", "lana del rey", "doja cat", "travis scott", "kendrick lamar",
+    ],
+}
+
+# Multi-language artists: ARTIST_DB mein rahenge, par language ka hint nahi denge
+_NEUTRAL_ARTISTS = ["a r rahman", "hariharan", "shankar mahadevan"]
+
+_EXTRA_ALIASES = {
+    "dinesh lal yadav":  ["nirahua", "dinesh lal", "dinesh lal yadav nirahua"],
+    "pramod premi":      ["pramod premi yadav"],
+    "khesari lal yadav": ["khesari lal"],
+    "arvind akela kallu": ["kallu ji", "arvind akela kallu ji"],
+    "neelkamal singh":   ["neelkamal"],
+    "pawan singh":       ["power star pawan singh"],
+    "shilpi raj":        ["shilpi"],
+    "a r rahman":        ["ar rahman"],
+    "rahat fateh ali":   ["rahat fateh ali khan"],
+}
+
+_EXTRA_SIMILAR = {
+    "samar singh":        ["pawan singh", "khesari lal yadav", "arvind akela kallu", "neelkamal singh"],
+    "neelkamal singh":    ["samar singh", "pawan singh", "khesari lal yadav", "ritesh pandey"],
+    "arvind akela kallu": ["pawan singh", "khesari lal yadav", "samar singh", "ritesh pandey"],
+    "ritesh pandey":      ["pawan singh", "khesari lal yadav", "arvind akela kallu", "samar singh"],
+    "shilpi raj":         ["antra singh priyanka", "kalpana patowary", "indu sonali", "khushboo uttam"],
+    "dinesh lal yadav":   ["pawan singh", "khesari lal yadav", "pramod premi", "manoj tiwari"],
+    "masoom sharma":      ["khasa aala chahar", "renuka panwar", "raj mawar", "sumit goswami"],
+    "khasa aala chahar":  ["masoom sharma", "renuka panwar", "raj mawar", "sumit goswami"],
+    "renuka panwar":      ["masoom sharma", "khasa aala chahar", "sapna choudhary"],
+}
+
+
+def _add_unique(lst: List[str], items) -> None:
+    seen = set(lst)
+    for it in items or []:
+        n = _norm(str(it))
+        if n and n not in seen:
+            lst.append(n)
+            seen.add(n)
+
+
+def _extend_databases() -> None:
+    taken = {n for lst in ARTIST_LANG.values() for n in lst}   # ek artist = ek language (pehli jeet)
+    for lang, names in _EXTRA_ARTIST_LANG.items():
+        bucket = ARTIST_LANG.setdefault(lang, [])
+        _add_unique(bucket, [n for n in names if _norm(n) not in taken])
+        taken.update(bucket)
+    for lst in list(ARTIST_LANG.values()):
+        for name in lst:
+            ARTIST_DB.setdefault(name, [name, f"{name} song"])
+    for name in _NEUTRAL_ARTISTS:
+        ARTIST_DB.setdefault(name, [name, f"{name} song"])
+    for name, aliases in _EXTRA_ALIASES.items():
+        _add_unique(ARTIST_DB.setdefault(name, [name]), aliases)
+    for name, sims in _EXTRA_SIMILAR.items():
+        _add_unique(SIMILAR_ARTISTS.setdefault(name, []), sims)
+
+
+# nexo/utils/autoplay_data.py ke ARTISTS ke categories -> language
+_CAT_LANG = {
+    "bhojpuri": "bhojpuri", "hindi_male": "hindi", "hindi_female": "hindi", "punjabi": "punjabi",
+    "tamil": "tamil", "telugu": "telugu", "pakistani_urdu": "urdu", "english": "english",
+}
+# Ek category mein kai languages: (pehli language, [(is naam se aage ki language, None = koi lock nahi)])
+_CAT_SPLIT = {
+    "haryanvi_rajasthani":   ("haryanvi",  [("Seema Mishra", None)]),
+    "gujarati_marathi":      ("gujarati",  [("Ajay Atul", "marathi")]),
+    "bengali_assamese_odia": ("bengali",   [("Angarag Mahanta Papon", None)]),
+    "malayalam_kannada":     ("malayalam", [("Ravi Basrur", "kannada")]),
+}
+_CAT_NEUTRAL = {"devotional", "kpop_world"}      # artist pehchano, par language lock mat lagao
+_CAT_LABELS = {"channels"}                       # label/channel hain, artist nahi
+_INDIAN_CATS = {"bhojpuri", "haryanvi_rajasthani", "hindi_male", "hindi_female", "punjabi",
+                "gujarati_marathi", "bengali_assamese_odia", "tamil", "telugu",
+                "malayalam_kannada", "devotional", "pakistani_urdu"}
+
+# Aam shabd jo kisi artist ka naam bhi hain -- akele token ko artist/language hint mat maano
+_COMMON_NAME_STOP = {
+    "king", "divine", "vayu", "ninja", "strings", "junoon", "overload", "jojo", "queen",
+    "future", "prince", "passenger", "oasis", "logic", "sting", "eagles", "muse", "twice",
+    "rose", "cher", "nirvana", "keane", "usher", "lisa", "suga", "enya", "santana", "passenger",
+}
+_NAME_SUFFIX_NOISE = {
+    "english", "kannada", "marathi", "odia", "assamese", "bengali", "bhajan", "bhakti", "songs",
+    "pakistan", "qawwali", "ghazal", "gujarati", "punjabi", "hindi", "tamil", "telugu",
+    "malayalam", "japanese", "spanish", "studio",
+}
+_EXT_LABELS: List[str] = []
+
+
+def _split_names(block) -> List[str]:
+    return [n.strip() for n in str(block).replace("\n", " ").split(",") if n.strip()]
+
+
+def _clean_ext_name(raw: str, indian: bool) -> str:
+    if re.search(r"[^\w\s.\-']", raw, re.UNICODE):          # "Kr$na" jaise naam chhod do
+        return ""
+    n = _norm(raw)
+    toks = n.split()
+    if not toks or len(n) < 2:
+        return ""
+    if len(toks) == 1:
+        if n in _COMMON_NAME_STOP or (not indian and len(n) < 6):
+            return ""
+    elif toks[-1] in _NAME_SUFFIX_NOISE:                      # "arijit singh english" -> base naam kaafi hai
+        return ""
+    return n
+
+
+def _merge_artists_block(artists: dict, aliases: dict) -> None:
+    existing = {n for lst in ARTIST_LANG.values() for n in lst} | set(ARTIST_DB)
+    ext_norm = {_norm(n) for blk in artists.values() for n in _split_names(blk)}
+
+    # Alias groups: ek hi artist ke do naam (jaise "Pramod Premi" / "Pramod Premi Yadav") ek karo
+    redirect: Dict[str, str] = {}
+    groups: Dict[str, List[str]] = {}
+    for canon, als in (aliases or {}).items():
+        c = _norm(canon)
+        al = [_norm(a) for a in (als or []) if _norm(a)]
+        members = [m for m in [c] + al if m in existing or m in ext_norm]
+        target = next((m for m in members if m in existing), c)
+        for m in members:
+            if m != target:
+                redirect[m] = target
+        groups[target] = [c] + al
+
+    neutral = set(_NEUTRAL_ARTISTS) | {"ar rahman"}
+    taken = {n for lst in ARTIST_LANG.values() for n in lst}
+
+    for cat, block in artists.items():
+        names = _split_names(block)
+        if cat in _CAT_LABELS:
+            _EXT_LABELS.extend(_norm(n) for n in names if _norm(n))
+            continue
+        indian = cat in _INDIAN_CATS
+        if cat in _CAT_SPLIT:
+            lang, switches = _CAT_SPLIT[cat][0], dict((_norm(a), b) for a, b in _CAT_SPLIT[cat][1])
+        else:
+            lang, switches = _CAT_LANG.get(cat), {}
+        for raw in names:
+            if _norm(raw) in switches:
+                lang = switches[_norm(raw)]
+            n = _clean_ext_name(raw, indian)
+            if not n or redirect.get(n, n) != n:
+                continue
+            if cat in _CAT_NEUTRAL or n in neutral or not lang:
+                ARTIST_DB.setdefault(n, [n, f"{n} song"])
+            elif n not in taken:
+                _add_unique(ARTIST_LANG.setdefault(lang, []), [n])
+                taken.add(n)
+
+    for target, members in groups.items():
+        if target in _EXT_LABELS or any(m in _EXT_LABELS for m in members):
+            _EXT_LABELS.extend(members)
+            continue
+        good = [m for m in members if m != target and
+                (" " in m or (len(m) >= 6 and m not in _COMMON_NAME_STOP))]
+        if good or target in ARTIST_DB or target in taken or target in ext_norm:
+            _add_unique(ARTIST_DB.setdefault(target, [target, f"{target} song"]), good)
+
+
+def _merge_external(ext) -> None:
+    """nexo/utils/autoplay_data.py ko merge karo.
+    1) ARTISTS (category -> "naam, naam, ...") + ALIASES (canonical -> [alias])  -- aapki file ka format
+    2) simple dict-of-lists (ARTIST_LANG / ARTIST_DB / LANG_DB / MOOD_DB ... agar ho)"""
+    targets = {
+        "ARTIST_LANG": ARTIST_LANG, "ARTIST_DB": ARTIST_DB, "LANG_DB": LANG_DB,
+        "MOOD_DB": MOOD_DB, "MOVIE_DB": MOVIE_DB, "SIMILAR_ARTISTS": SIMILAR_ARTISTS,
+        "LANG_TITLE_INDICATORS": LANG_TITLE_INDICATORS,
+    }
+    for name, target in targets.items():
+        src = getattr(ext, name, None)
+        if not isinstance(src, dict):
+            continue
+        for k, v in src.items():
+            if isinstance(v, (list, tuple, set)):
+                _add_unique(target.setdefault(_norm(str(k)), []), v)
+    artists, aliases = getattr(ext, "ARTISTS", None), getattr(ext, "ALIASES", None)
+    if isinstance(artists, dict):
+        _merge_artists_block(artists, aliases if isinstance(aliases, dict) else {})
+
+
+# Malayalam / Kannada ab alag languages (autoplay_data.py mein inke artists hain)
+LANG_DB.setdefault("malayalam", ["malayalam", "malayalam song", "mollywood"])
+LANG_DB.setdefault("kannada", ["kannada", "kannada song", "sandalwood"])
+LANG_DB.setdefault("assamese", ["assamese"])
+LANG_DB.setdefault("odia", ["odia", "oriya"])
+
+
+try:
+    from nexo.utils import autoplay_data as _EXT_DATA
+    _merge_external(_EXT_DATA)
+except Exception as _err:           # file na ho / alag format ho -- koi baat nahi
+    LOGGER.info("autoplay_data merge skipped: %s", _err)
+_extend_databases()
+
+
+def _artist_lang(artist: Optional[str]) -> str:
+    a = _norm(artist)
+    if not a:
+        return ""
+    for lang, names in ARTIST_LANG.items():
+        if a in names:
+            return lang
+    return ""
+
+
+def _best_artist_match(padded: str):
+    """ARTIST_DB ke saare aliases mein sabse LAMBA match -> (artist, alias_len).
+    "Mukesh Premi" par "mukesh" nahi, poora "mukesh premi" jeetega."""
+    best, blen = "", 0
+    for artist, keys in ARTIST_DB.items():
+        for k in keys:
+            if len(k) > blen and f" {k} " in padded:
+                best, blen = artist, len(k)
+    return best, blen
+
+
+def is_remix(title: Optional[str], channel=None) -> bool:
+    return _has_any(REMIX_FAMILY, f"{title or ''} {_chan_str(channel)}")
+
+
+def _strip_remix(text: Optional[str]) -> str:
+    padded = _pad(text)
+    for _ in range(2):
+        for w in sorted(REMIX_FAMILY, key=len, reverse=True):
+            padded = padded.replace(f" {w} ", " ")
+    return padded.strip()
+
+
+def _is_remixer(name: Optional[str]) -> bool:
+    n = _norm(name)
+    return bool(n) and (n == "dj" or n.startswith("dj ") or _has_any(REMIX_FAMILY, n))
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  DETECT  (language / mood / artist / movie)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -257,11 +592,12 @@ def detect_lang(title: str) -> str:
     """1) title mein language ka naam  2) artist ka naam  3) default hindi"""
     if not title:
         return "hindi"
+    padded = _pad(title)
     for lang, keys in LANG_DB.items():
-        if _has_any(keys, title):
+        if _in_pad(keys, padded):
             return lang
     for lang, artists in ARTIST_LANG.items():
-        if _has_any(artists, title):
+        if _in_pad(artists, padded):
             return lang
     return "hindi"
 
@@ -285,9 +621,10 @@ def extract_artist(title: str) -> str:
     """1) ARTIST_DB  2) separator ke baad ka naam  3) ARTIST_LANG scan"""
     if not title:
         return ""
-    for artist, keys in ARTIST_DB.items():
-        if _has_any(keys, title):
-            return artist
+    padded = _pad(title)
+    found, _n = _best_artist_match(padded)
+    if found:
+        return found
 
     for sep in (" - ", " | ", " — "):
         if sep in title:
@@ -306,7 +643,7 @@ def extract_artist(title: str) -> str:
 
     for lst in ARTIST_LANG.values():
         for known in lst:
-            if _has_any([known], title):
+            if f" {known} " in padded:
                 return known
     return ""
 
@@ -377,6 +714,7 @@ _GENERIC_TOKENS = set(_NOISE_WORDS) | set(_VERSION_NOISE) | {
     "bhojpuri", "bhajpuri", "haryanvi", "punjabi", "hindi", "bollywood", "gujarati",
     "tamil", "telugu", "bengali", "marathi", "urdu", "english", "songs", "hit", "hits",
     "superhit", "jukebox", "from", "feat", "ft", "featuring", "vs", "movie", "film",
+    "dj", "mix", "lofi", "slowed", "reverb", "bass", "boosted", "jbl", "vibration", "hard", "jhan",
 }
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _PHRASE_CACHE = (0, frozenset())
@@ -585,8 +923,9 @@ def _artist_from_channel(channel) -> str:
         return ""
     if ch.endswith(" topic"):                       # "Yo Yo Honey Singh - Topic"
         return ch[:-6].strip()
+    padded = f" {ch} "
     for name in _artist_names():
-        if name and _has_any([name], ch):
+        if name and f" {name} " in padded:
             return name
     return ""
 
@@ -594,6 +933,12 @@ def _artist_from_channel(channel) -> str:
 _CHANNEL_NOISE = re.compile(
     r"\b(topic|official|vevo|music|records|record|channel|studio|studios|films|"
     r"entertainment|hd|company|series)\b")
+
+
+for _lb in _EXT_LABELS:                      # autoplay_data.py ke "channels" -> label (artist nahi)
+    _lb = re.sub(r"\s+", " ", _CHANNEL_NOISE.sub(" ", _lb)).strip()
+    if len(_lb) >= 3:
+        _LABEL_NAMES.add(_lb)
 
 
 def _guess_artist(title: str, channel=None, query: str = "") -> str:
@@ -619,23 +964,36 @@ def _resolve_artist(title: str, channel=None, query: str = "") -> str:
     separator ke baad wala hissa).  Anjaan naam tabhi maano jab channel se confirm ho,
     warna autoplay usi gaane ko dobara search karta hai."""
     artist = extract_artist(title)
+    if artist and _is_remixer(artist):               # "X - DJ Rahul Remix" -> remixer artist nahi
+        artist = ""
     if artist and artist not in _artist_names():
-        ch = _norm(channel if isinstance(channel, str) else "")
+        ch = _norm(_chan_str(channel))
         ch = ch[:-6].strip() if ch.endswith(" topic") else ch
         if not (ch and (artist in ch or ch in artist)):
             artist = ""
-    return artist or _artist_from_channel(channel) or _guess_artist(title, channel, query)
+    out = artist or _artist_from_channel(channel) or _guess_artist(title, channel, query)
+    return "" if _is_remixer(out) else out
 
 
 def _context_from_title(title: str, channel=None, query: str = "") -> dict:
     artist = _resolve_artist(title, channel, query)
+    if not artist and query:                         # user ki query mein jaana-pehchana artist
+        qa = extract_artist(query)
+        if qa and qa in _artist_names() and not _is_remixer(qa):
+            artist = qa
+    remix = is_remix(title, channel)
+    # remix/DJ seed: "dj" se mood "party" mat banao -- alag-alag normal gaane chalne chahiye
+    mood_src = _strip_remix(title) if remix else title
+    # Language: title/channel -> user ki query -> artist ki language.  Pakki na ho to "" (kuch lock nahi).
+    # (Pehle "hindi" thop dete the aur Bhojpuri gaane INCOMPATIBLE_LANGS se block ho jate the.)
+    lang = _lang_hint(title, channel) or (_lang_hint(query) if query else None) or _artist_lang(artist) or ""
     return {
         "title": title,
-        # language pakki na ho aur artist pata ho to "hindi" thopo mat (Tuntun -> Hindi bug)
-        "lang": _lang_hint(title, channel) or ("" if artist else "hindi"),
-        "mood": detect_mood(title),
+        "lang": lang,
+        "mood": detect_mood(mood_src),
         "artist": artist,
         "movie": detect_movie(title),
+        "remix": remix,
     }
 
 
@@ -683,7 +1041,7 @@ async def set_language(chat_id: int, lang: Optional[str]) -> None:
     lg = (lang or "").strip().lower() or None
     if lg and lg not in LANG_DB:
         return
-    await _save_context(int(chat_id), {"lang": lg or "hindi"})
+    await _save_context(int(chat_id), {"lang": lg or ""})
 
 
 async def note_played(
@@ -709,12 +1067,12 @@ async def note_played(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 _MOOD_QUERIES = {
-    "sad":        lambda lp: [f"sad {lp} songs", f"heartbreak {lp} songs", "bewafa songs"],
-    "love":       lambda lp: [f"romantic {lp} songs", f"love {lp} songs", "ishq wala love song"],
+    "sad":        lambda lp: [f"sad {lp} songs", f"heartbreak {lp} songs"] + (["bewafa songs"] if lp == "hindi" else []),
+    "love":       lambda lp: [f"romantic {lp} songs", f"love {lp} songs"] + (["ishq wala love song"] if lp == "hindi" else []),
     "party":      lambda lp: [f"party {lp} songs", f"dance {lp} songs"],
-    "wedding":    lambda lp: [f"wedding {lp} songs", "shaadi sangeet songs"],
-    "devotional": lambda lp: ["bhajan hindi", "aarti songs", "bhakti songs"],
-    "oldschool":  lambda lp: [f"90s {lp} songs", f"old {lp} songs", "retro bollywood"],
+    "wedding":    lambda lp: [f"wedding {lp} songs"] + (["shaadi sangeet songs"] if lp == "hindi" else [f"{lp} shaadi songs"]),
+    "devotional": lambda lp: [f"{lp} bhajan", f"{lp} aarti songs", f"{lp} bhakti songs"],
+    "oldschool":  lambda lp: [f"90s {lp} songs", f"old {lp} songs"] + (["retro bollywood"] if lp == "hindi" else []),
     "sufi":       lambda lp: ["sufi hindi songs", "qawwali hindi"],
 }
 
@@ -768,31 +1126,60 @@ def build_artist_queries(artist: str, lang: str = "") -> List[str]:
     return _clean_queries(qs)
 
 
+def similar_artists(artist: str, n_peers: int = 4) -> List[str]:
+    """SIMILAR_ARTISTS + usi language ke kuch random aur artist (poori ARTIST_LANG se)."""
+    a = _norm(artist)
+    out = list(SIMILAR_ARTISTS.get(a, []))
+    lang = _artist_lang(a)
+    if lang:
+        peers = [p for p in ARTIST_LANG.get(lang, []) if p != a and p not in out]
+        random.shuffle(peers)
+        out += peers[:n_peers]
+    return out
+
+
+def build_lang_queries(lang: str, n_artists: int = 10) -> List[str]:
+    """Poori language ke alag-alag artists ke queries -- har baar naye random artists,
+    taaki ek hi artist / ek hi tarah ke gaane na ghoomte rahein."""
+    lang = (lang or "hindi").lower()
+    pool = list(ARTIST_LANG.get(lang, []))
+    random.shuffle(pool)
+    qs = [f"{a} official songs" for a in pool[:n_artists]]
+    qs += [f"{lang} official songs", f"{lang} superhit songs", f"{lang} new songs",
+           f"{lang} romantic songs", f"{lang} sad songs", f"{lang} old songs"]
+    qs += _LANG_FALLBACK.get(lang, [])
+    return qs
+
+
 def build_smart_queries(title, artist, movie, lang, mood, recent_artists_list=None) -> List[str]:
-    """Artist ho to PEHLE sirf uske queries aate hain (artist-lock).  Dusre artist /
-    language / mood wale queries sabse peeche -- tabhi chalte hain jab artist ke
-    fresh gaane khatam ho jaayein."""
+    """Artist ho to PEHLE sirf uske queries aate hain (artist-lock).  Phir usi language ke
+    similar artists / mood / language-wide queries -- hamesha SEED KI LANGUAGE mein."""
     # NOTE: gaane ke apne title se query NAHI banti -- wahi gaana / cover wapas aata tha.
     queries: List[str] = build_artist_queries(artist, lang)
 
     if artist:
-        for sim in SIMILAR_ARTISTS.get(artist.lower(), []):
+        for sim in similar_artists(artist):
             queries.append(f"{sim} official songs")
 
     if movie:
         queries += [f"{movie} official jukebox", f"{movie} all songs", f"{movie} original soundtrack"]
 
-    lp = lang if lang in ("hindi", "punjabi", "bhojpuri", "haryanvi") else "hindi"
+    lp = lang if lang in LANG_DB else "hindi"
     if mood in _MOOD_QUERIES:
         queries += _MOOD_QUERIES[mood](lp)
 
-    queries += _LANG_FALLBACK.get(lang or "hindi", [f"best {lang} songs"])
+    queries += build_lang_queries(lang or "hindi")
     return _clean_queries(queries)[:90]
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  BEST SONG PICKER  (filters + score)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Ye languages "lock" hoti hain: seed Bhojpuri to sirf Bhojpuri (Hindi/English/Punjabi... nahi)
+STRICT_LANGS = {"bhojpuri", "haryanvi", "gujarati", "tamil", "telugu", "bengali", "marathi",
+                "malayalam", "kannada"}
+
 
 def _artist_hit(artist: str, title: str, channel: str = "") -> bool:
     """Title / channel mein ye artist (ya uska alias) hai?"""
@@ -826,7 +1213,9 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
     recent_art = await recent_artists(chat_id)
     history = await _load_recent(chat_id)
     seed_keys = title_keys(last_title, artist) + title_keys(ctx.get("query") or "", artist)
-    bad = [b for b in BAD_WORDS if not _has_any([b], last_title)]   # user ne khud maanga ho to allow
+    # live/cover/acoustic jaise words seed mein ho to allow; remix/DJ/lofi family kabhi allow nahi
+    bad = [b for b in BAD_WORDS if b in REMIX_FAMILY or not _has_any([b], last_title)]
+    strict_lang = lang in STRICT_LANGS
 
     scored = []
     for r in candidates or []:
@@ -847,13 +1236,19 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
         if mood != "devotional" and _has_any(DEVOTIONAL_WORDS, tl):
             continue
         ch = _channel_name(r)
+        if _has_any(REMIX_FAMILY, ch):                   # DJ / remix / lofi wale channels
+            continue
         art_hit = bool(artist) and _artist_hit(artist, raw, ch)
         if artist and strict_artist and not art_hit:     # artist-lock: dusre artist ka gaana nahi
             continue
-        # artist ka apna gaana ho to language filter mat lagao (title mein "bhojpuri" likha ho
-        # aur ctx lang galti se "hindi" ho to poora artist reject ho jata tha)
-        if blocked and not art_hit and _detect_title_lang(tl) in blocked:
-            continue
+        hint = _lang_hint(raw, ch)
+        # artist ka apna gaana ho to language filter mat lagao
+        if not art_hit:
+            if blocked and hint in blocked:
+                continue
+            if strict_lang and hint and hint != lang:    # Bhojpuri seed par Hindi/English/Punjabi nahi
+                continue
+        lang_ok = bool(lang) and hint == lang
 
         if any(x in ch for x in SPAM_CHANNEL) or any(x in tl for x in SPAM_TITLE):
             continue
@@ -874,14 +1269,20 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
             score += 45
         if _has_any(LANG_DB.get(lang, []), tl):
             score += 20
+        if lang_ok:
+            score += 40
         if mood != "normal" and _has_any(MOOD_DB.get(mood, []), tl):
             score += 15
         # (same-artist penalty hata di: user ko usi artist ka playlist chahiye)
 
-        scored.append((score, official, r, art_hit))
+        scored.append((score, official, r, art_hit, lang_ok))
 
     if not scored:
         return None
+    if strict_lang:                      # language pakki wale mile to sirf wahi (anjaan language peeche)
+        confirmed = [x for x in scored if x[4] or x[3]]
+        if confirmed:
+            scored = confirmed
     hits = [x for x in scored if x[3]]
     if artist and hits:                  # artist ke gaane mile to sirf wahi (official-only pool se bhi pehle)
         scored = hits
@@ -988,16 +1389,46 @@ def normalize_lang(x: Optional[str]) -> Optional[str]:
     return None
 
 
-def _lang_hint(title: Optional[str], channel: Optional[str] = None) -> Optional[str]:
-    """Title/channel se language, pakki na ho to None (detect_lang jaisa, bina default hindi ke)."""
-    text = f"{title or ''} {channel or ''}"
+# Bhojpuri gaano ke title mein aane wale pakke shabd (jab "bhojpuri" likha na ho)
+_BHOJPURI_WORDS = [
+    "lagelu", "lagela", "lagelee", "kailu", "bhatar", "bhatara", "hamar", "hamaar",
+    "tohar", "tohaar", "chhauri", "chhaura", "devarwa", "balamua", "piyawa", "sejiya", "sejia", "labar",
+]
+# Jude hue likhe naam bhi pakdo: "HamarBhojpuri", "भोजपुरी" (unidecode -> bhojpurii)
+_COMPACT_LANG_TAGS = {
+    "bhojpuri": ("bhojpuri", "bhojpurii", "bhajpuri", "bhojpuriya"),
+    "haryanvi": ("haryanvi", "haryanavi", "hariyanvi"),
+}
+
+
+def _lang_hint(title: Optional[str], channel=None) -> Optional[str]:
+    """Title/channel se language, pakki na ho to None.
+    Order: language ka naam -> artist (poora ARTIST_LANG) -> title ke indicators -> Bhojpuri shabd."""
+    padded = _pad(f"{title or ''} {_chan_str(channel)}")
+    compact = padded.replace(" ", "")
+    for lang, tags in _COMPACT_LANG_TAGS.items():
+        if any(t in compact for t in tags):
+            return lang
     for lang, keys in LANG_DB.items():
-        if lang != "hindi" and _has_any(keys, text):
+        if lang != "hindi" and _in_pad(keys, padded):
             return lang
+    best = None                              # sabse lamba naam jeete ("mukesh premi" > "mukesh")
     for lang, artists in ARTIST_LANG.items():
-        if _has_any(artists, text):
+        for a in artists:
+            if f" {a} " in padded and (best is None or len(a) > best[0]):
+                best = (len(a), lang)
+    alias_artist, alias_len = _best_artist_match(padded)
+    alias_lang = _artist_lang(alias_artist) if alias_artist else ""
+    if alias_lang and (best is None or alias_len > best[0]):
+        return alias_lang
+    if best:
+        return best[1]
+    for lang, kws in LANG_TITLE_INDICATORS.items():
+        if _in_pad(kws, padded):
             return lang
-    return _detect_title_lang(_norm(text)) or ("hindi" if _has_any(LANG_DB["hindi"], text) else None)
+    if _in_pad(_BHOJPURI_WORDS, padded):
+        return "bhojpuri"
+    return "hindi" if _in_pad(LANG_DB["hindi"], padded) else None
 
 
 def detect_language(title, channel=None, extra_text=None, use_channel_memory=True) -> Optional[str]:
