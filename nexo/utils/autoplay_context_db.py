@@ -39,7 +39,7 @@ DEVOTIONAL_WORDS = [
 ]
 
 LANG_TITLE_INDICATORS = {
-    "bhojpuri": ["bhojpuri", "pawan singh", "khesari", "pramod premi"],
+    "bhojpuri": ["bhojpuri", ,"tuntun Yadav" "pawan singh", "khesari", "pramod premi"],
     "haryanvi": ["haryanvi", "mewati", "khasa aala chahar", "masoom sharma"],
     "gujarati": ["gujarati", "garba", "gujju"],
     "tamil":    ["tamil", "kollywood"],
