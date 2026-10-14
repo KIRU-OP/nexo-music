@@ -58,7 +58,7 @@ GIT_TOKEN = getenv("GIT_TOKEN")  # needed if repo is private
 
 # ── Support links ──────────────────────────────────────────────────────────────
 SUPPORT_CHANNEL = getenv("SUPPORT_CHANNEL", "https://t.me/about_deadly_venom")
-SUPPORT_CHAT = getenv("SUPPORT_CHAT", "https://t.me/+2PkcrtzO-1A5MjY1")
+SUPPORT_CHAT = getenv("SUPPORT_CHAT", "https://t.me/group_voice_chat")
 POLICY_URL = getenv("POLICY_URL", "https://nexo-music-privacy-policy.vercel.app")
 
 # ── Assistant auto-leave ───────────────────────────────────────────────────────
