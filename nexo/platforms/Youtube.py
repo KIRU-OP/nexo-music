@@ -197,10 +197,21 @@ def _ytdlp_lookup_sync(query: str, limit: int) -> list:
     return results[:limit]
 
 
+# Set when youtubesearchpython is incompatible with installed httpx (>=0.28).
+# Once set, VideosSearch is skipped and yt-dlp is used directly.
+_VIDEOSSEARCH_BROKEN = False
+
+
+def _is_proxies_incompat(exc: Exception) -> bool:
+    return isinstance(exc, TypeError) and "proxies" in str(exc)
+
+
 async def search_videos_with_retry(query: str, limit: int = 1) -> list:
     """Return a non-empty list of VideosSearch-style results or raise ValueError."""
+    global _VIDEOSSEARCH_BROKEN
     last_exc = None
-    for attempt in range(1, VIDEO_SEARCH_ATTEMPTS + 1):
+    attempts = 0 if _VIDEOSSEARCH_BROKEN else VIDEO_SEARCH_ATTEMPTS
+    for attempt in range(1, attempts + 1):
         try:
             data = await VideosSearch(query, limit=limit).next()
             results = (data or {}).get("result") or []
@@ -209,11 +220,18 @@ async def search_videos_with_retry(query: str, limit: int = 1) -> list:
             last_exc = ValueError("empty search result")
         except Exception as e:
             last_exc = e
+            if _is_proxies_incompat(e):
+                _VIDEOSSEARCH_BROKEN = True
+                logger.error(
+                    "youtubesearchpython incompatible with installed httpx "
+                    "(fix: pip install 'httpx<0.28'); using yt-dlp only"
+                )
+                break  # deterministic error, retrying is pointless
         logger.warning(
             f"VideosSearch attempt {attempt}/{VIDEO_SEARCH_ATTEMPTS} failed "
             f"for {query!r}: {last_exc}"
         )
-        if attempt < VIDEO_SEARCH_ATTEMPTS:
+        if attempt < attempts:
             await asyncio.sleep(VIDEO_SEARCH_RETRY_DELAY * attempt)
 
     # Last resort: yt-dlp
@@ -779,13 +797,14 @@ class YouTubeAPI:
             return _same_song(seed, {"v": str(cid or ""), "t": ctitle or "", "d": cdur})
 
         async def search_page(text: str, limit: int = 20) -> list:
-            try:
-                res = VideosSearch(text, limit=limit)
-                found = (await res.next()).get("result", []) or []
-                if found:
-                    return found
-            except Exception as err:
-                logger.warning("Autoplay search failed for %s: %s", text, err)
+            if not _VIDEOSSEARCH_BROKEN:
+                try:
+                    res = VideosSearch(text, limit=limit)
+                    found = (await res.next()).get("result", []) or []
+                    if found:
+                        return found
+                except Exception as err:
+                    logger.warning("Autoplay search failed for %s: %s", text, err)
             try:   # fallback: yt-dlp (VideosSearch toot jaye tab bhi autoplay chale)
                 loop = asyncio.get_running_loop()
                 return await loop.run_in_executor(None, _ytdlp_lookup_sync, text, min(limit, 15))
@@ -1069,15 +1088,22 @@ class YouTubeAPI:
 
         async def fetch(text: str) -> list:
             out = []
-            try:
-                search = VideosSearch(text, limit=20)
-                for _ in range(2):
-                    page = (await search.next()).get("result", [])
-                    if not page:
-                        break
-                    out.extend(page)
-            except Exception as err:
-                logger.warning("Autoplay context search failed for %s: %s", text, err)
+            if not _VIDEOSSEARCH_BROKEN:
+                try:
+                    search = VideosSearch(text, limit=20)
+                    for _ in range(2):
+                        page = (await search.next()).get("result", [])
+                        if not page:
+                            break
+                        out.extend(page)
+                except Exception as err:
+                    logger.warning("Autoplay context search failed for %s: %s", text, err)
+            if not out:
+                try:
+                    loop = asyncio.get_running_loop()
+                    out = await loop.run_in_executor(None, _ytdlp_lookup_sync, text, 20)
+                except Exception as err:
+                    logger.warning("Autoplay yt-dlp context search failed for %s: %s", text, err)
             return out
 
         first = await fetch(base_search)
