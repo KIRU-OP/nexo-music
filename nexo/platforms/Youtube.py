@@ -16,9 +16,9 @@ from pyrogram.types import Message
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 try:  # SkyBotsDeveloper fork ships the async API as `future`
-    from youtubesearchpython.future import VideosSearch
+    from youtubesearchpython.__future__ import VideosSearch
     try:
-        from youtubesearchpython.future import Recommendations
+        from youtubesearchpython.__future__ import Recommendations
     except ImportError:
         Recommendations = None
 except ImportError:  # original youtube-search-python ships it as `__future__`
