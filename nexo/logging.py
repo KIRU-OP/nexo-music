@@ -30,17 +30,23 @@ for lib, level in [
 
 
 class SecretRedactionFilter(logging.Filter):
+    @staticmethod
+    def _clean(value):
+        # numbers / bool / None ko as-is rakho taaki %d, %f, %i format chale.
+        # (bool int ka subclass hai, isliye alag se check karne ki zarurat nahi)
+        if value is None or isinstance(value, (int, float)):
+            return value
+        return redact_secrets(str(value))
+
     def filter(self, record: logging.LogRecord) -> bool:
         record.msg = redact_secrets(str(record.msg))
         if record.args:
             if isinstance(record.args, dict):
-                record.args = {
-                    key: redact_secrets(str(value)) for key, value in record.args.items()
-                }
+                record.args = {k: self._clean(v) for k, v in record.args.items()}
             elif isinstance(record.args, tuple):
-                record.args = tuple(redact_secrets(str(arg)) for arg in record.args)
+                record.args = tuple(self._clean(a) for a in record.args)
             else:
-                record.args = (redact_secrets(str(record.args)),)
+                record.args = (self._clean(record.args),)
         return True
 
 
