@@ -15,11 +15,18 @@ from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from youtubesearchpython.__future__ import VideosSearch
-try:
-    from youtubesearchpython.__future__ import Recommendations
-except ImportError:
-    Recommendations = None
+try:  # SkyBotsDeveloper fork ships the async API as `future`
+    from youtubesearchpython.future import VideosSearch
+    try:
+        from youtubesearchpython.future import Recommendations
+    except ImportError:
+        Recommendations = None
+except ImportError:  # original youtube-search-python ships it as `__future__`
+    from youtubesearchpython.__future__ import VideosSearch
+    try:
+        from youtubesearchpython.__future__ import Recommendations
+    except ImportError:
+        Recommendations = None
 import base64
 from nexo import LOGGER
 from nexo.utils.database import is_on_off
