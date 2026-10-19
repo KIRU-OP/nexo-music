@@ -66,6 +66,7 @@ from nexo.utils.autoplay_context_db import (
     clear_context as clear_autoplay_context,
     get_context as get_autoplay_context,
     set_context_kind as set_autoplay_context_kind,
+    note_played as note_autoplay_seed,
 )
 from nexo.utils.played_db import add_played, clear_played, is_played
 from nexo.utils.voiceplay_policy import should_prompt_after_track
@@ -174,13 +175,22 @@ async def _record_played(chat_id: int, track: dict) -> None:
             return
         if str(track.get("file") or "").startswith("live_"):
             return
+        # User ka lagaya gaana = naya seed (artist / lang / mood save). Autoplay wala gaana seed nahi badalta.
+        try:
+            await note_autoplay_seed(
+                chat_id, vid, track.get("title"),
+                autoplayed=str(track.get("by") or "") == "Autoplay",
+                record=False,
+            )
+        except Exception as err:
+            LOGGER(__name__).warning("autoplay seed save failed | chat_id=%s | %s", chat_id, err)
         ctx = await get_autoplay_context(chat_id)
         await add_played(
             chat_id,
             vid,
             track.get("title"),
             track.get("seconds") or track.get("dur"),
-            (ctx or {}).get("ignore") or (ctx or {}).get("core", ""),
+            (ctx or {}).get("ignore") or (ctx or {}).get("core") or (ctx or {}).get("artist", ""),
         )
         LOGGER(__name__).info(
             "Played recorded | chat_id=%s | vid=%s | title=%s", chat_id, vid, track.get("title")
@@ -1182,7 +1192,7 @@ class Call:
             ctx = await get_autoplay_context(chat_id)
         except Exception as err:
             LOGGER(__name__).warning("autoplay context read failed | %s", err)
-        core = (ctx or {}).get("ignore") or (ctx or {}).get("core", "")
+        core = (ctx or {}).get("ignore") or (ctx or {}).get("core") or (ctx or {}).get("artist", "")
 
         finished_title = str(finished_track.get("title") or "")
         # Autoplay history (A -> B -> A bhi rokne ke liye): (title, seconds)
@@ -1232,6 +1242,7 @@ class Call:
                     finished_track.get("title", ""),
                     max_duration=max_duration,
                     is_played=_played,
+                    ctx=ctx,        # seed ka artist / lang / mood -> artist-lock chalega
                 )
         except Exception as err:
             LOGGER(__name__).warning(
