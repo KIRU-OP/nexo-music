@@ -464,6 +464,12 @@ async def play_command(
             await log_play_failure("YouTube Search", e, query_text=query, stream_label="Youtube Track")
             return await mystic.edit_text(_["play_3"])
 
+        try:   # autoplay: user ne jo artist / mood likha use yaad rakho (artist-lock)
+            from nexo.utils.autoplay_context_db import set_context as _set_autoplay_context
+            await _set_autoplay_context(chat_id, query)
+        except Exception:
+            pass
+
         internal_type = "youtube"
         log_label = "Youtube Track"
 
