@@ -194,6 +194,16 @@ REMIX_FAMILY = [
     "sped up", "mashup", "hard bass", "jhan jhan bass", "vibration", "jbl", "dholki mix",
 ]
 BAD_WORDS += [w for w in REMIX_FAMILY if w not in BAD_WORDS]
+
+# Spelling-proof remix / DJ / lofi detector.  Sirf word-list se "rimix", "remixed", "rmx",
+# "jhankar", "dholki", "trap", Devanagari "रीमिक्स" (unidecode -> "riimiks") nahi pakde jaate the.
+_REMIX_RE = re.compile(
+    r"(?:^|\s)(?:"
+    r"r[ei]+m+[iey]+x\w*|r[ei]+m+[ei]+ks\w*|rmx|"          # remix rimix remixed remixes rmx रीमिक्स
+    r"dj\w*|mix(?:es)?|lo ?fi|slowed|reverb|8d|16d|sped|nightcore|"
+    r"jhank\w*|dholki|trap|edm|nonstop|non stop|tapori|jbl|vibration|"
+    r"bass boosted|bassboosted|hard bass|jhan jhan bass|mashup|mash up"
+    r")(?=\s|$)")
 SPAM_TITLE = ["lyrical", "lyrics video", "lyric video", "cover by", "remix by", "dj remix"]
 SPAM_CHANNEL = ["lyrics", "lofi", "slowed", "reverb", "cover", "karaoke", "remix", "8d"]
 
@@ -401,6 +411,12 @@ def _extend_databases() -> None:
             ARTIST_DB.setdefault(name, [name, f"{name} song"])
     for name in _NEUTRAL_ARTISTS:
         ARTIST_DB.setdefault(name, [name, f"{name} song"])
+    # Chhote single-word naam ("shubh", "kk", "shaan", "kaka") aam shabd bhi hain: "Shubh Mangal Savdhan"
+    # se artist lock na ho -- ye tabhi artist maane jaate hain jab query sirf wahi naam (+ "songs") ho.
+    for lst in ARTIST_LANG.values():
+        for name in lst:
+            if " " not in name and (len(name) <= 5 or name in _COMMON_NAME_STOP):
+                _WEAK_ARTISTS.add(name)
     for name, aliases in _EXTRA_ALIASES.items():
         _add_unique(ARTIST_DB.setdefault(name, [name]), aliases)
     for name, sims in _EXTRA_SIMILAR.items():
@@ -614,8 +630,73 @@ def _best_artist_match(padded: str):
     return best, blen
 
 
+# ---- Devanagari: unidecode ka output kharab hota hai ("yaadv", "ttunttun"), isliye skeleton match ----
+_DEVA_RE = re.compile(r"[\u0900-\u097F]")
+_SKEL_CACHE = (0, {})
+
+
+def _skel(text: Optional[str]) -> str:
+    """'tuntun yadav' / 'ttunttun yaadv' -> 'tntnydv'  (repeat + vowels hata kar)."""
+    t = re.sub(r"[^a-z]", "", _norm(text))
+    t = re.sub(r"(.)\1+", r"\1", t)
+    return t[:1] + re.sub(r"[aeiou]", "", t[1:]) if t else ""
+
+
+def _skel_index() -> dict:
+    global _SKEL_CACHE
+    n = len(ARTIST_DB)
+    if _SKEL_CACHE[0] != n:
+        idx: dict = {}
+        for artist, keys in ARTIST_DB.items():
+            for k in {artist, *keys}:
+                if k in _WEAK_ARTISTS or " " not in k:
+                    continue
+                sk = "".join(_skel(w) for w in k.split())
+                if len(sk) >= 6:
+                    idx.setdefault(sk, artist)
+        _SKEL_CACHE = (n, idx)
+    return _SKEL_CACHE[1]
+
+
+def _deva_artist(raw: Optional[str]) -> str:
+    if not raw or not _DEVA_RE.search(raw):
+        return ""
+    compact = "".join(_skel(w) for w in _norm(raw).split())
+    best, blen = "", 0
+    for sk, artist in _skel_index().items():
+        if len(sk) > blen and sk in compact:
+            best, blen = artist, len(sk)
+    return best
+
+
+def _first_artist_match(padded: str) -> str:
+    """Title mein JO ARTIST PEHLE likha hai (credit order).  Pehle sabse lamba alias jeet-ta tha:
+    '... | Khesari Lal Yadav, Tuntun Yadav' -> Khesari (galat).  Ab position pehle, phir lambai."""
+    best, key = "", None
+    for artist, keys in ARTIST_DB.items():
+        for k in keys:
+            pos = padded.find(f" {k} ")
+            if pos < 0:
+                continue
+            if k in _WEAK_ARTISTS and not _weak_ok(k, padded):
+                continue
+            cand = (pos, -len(k))
+            if key is None or cand < key:
+                best, key = artist, cand
+    return best
+
+
+def _query_artist(query: Optional[str]) -> str:
+    """User ne khud artist ka naam likha ('tuntun yadav song') to wahi lock -- title kuch bhi ho."""
+    if not query:
+        return ""
+    a = _first_artist_match(_pad(query)) or _deva_artist(query)
+    return "" if (not a or _is_remixer(a)) else a
+
+
 def is_remix(title: Optional[str], channel=None) -> bool:
-    return _has_any(REMIX_FAMILY, f"{title or ''} {_chan_str(channel)}")
+    text = f"{title or ''} {_chan_str(channel)}"
+    return _has_any(REMIX_FAMILY, text) or bool(_REMIX_RE.search(_pad(text)))
 
 
 def _strip_remix(text: Optional[str]) -> str:
@@ -623,7 +704,8 @@ def _strip_remix(text: Optional[str]) -> str:
     for _ in range(2):
         for w in sorted(REMIX_FAMILY, key=len, reverse=True):
             padded = padded.replace(f" {w} ", " ")
-    return padded.strip()
+        padded = _REMIX_RE.sub(" ", padded)
+    return re.sub(r"\s+", " ", padded).strip()
 
 
 def _is_remixer(name: Optional[str]) -> bool:
@@ -669,7 +751,7 @@ def extract_artist(title: str) -> str:
     if not title:
         return ""
     padded = _pad(title)
-    found, _n = _best_artist_match(padded)
+    found = _first_artist_match(padded) or _deva_artist(title)
     if found:
         return found
 
@@ -870,7 +952,14 @@ def _same_song(stored: str, candidate: str) -> bool:
     ss = set(short)
     if len("".join(ss)) >= 10 and all(any(_tok_eq(t, u) for u in long_) for t in ss):
         return True
-    return short[0] == long_[0] and len(short[0]) >= 7
+    # (pehle yahan "pehla lamba shabd same => same gaana" tha: "Mohabbat Barsa Dena" == "Mohabbat Ki Kasam"
+    #  ban jata tha aur artist ka catalogue jaldi khatam lagta tha.  Hata diya.)
+    return False
+
+
+def same_song_titles(a: str, b: str, artist: str = "") -> bool:
+    """Do titles ek hi gaane ke hain? (remix / version / re-upload / spelling alag ho tab bhi)"""
+    return _keys_match(title_keys(a, artist), title_keys(b, artist))
 
 
 def _keys_match(a: List[str], b: List[str]) -> bool:
@@ -1028,7 +1117,8 @@ def _resolve_artist(title: str, channel=None, query: str = "") -> str:
 
 
 def _context_from_title(title: str, channel=None, query: str = "") -> dict:
-    artist = _resolve_artist(title, channel, query)
+    # User ki query mein artist ho to wahi lock (duet title mein dusra naam pehle ho tab bhi)
+    artist = _query_artist(query) or _resolve_artist(title, channel, query)
     if not artist and query:                         # user ki query mein jaana-pehchana artist
         qa = extract_artist(query)
         if qa and qa in _artist_names() and not _is_remixer(qa):
@@ -1098,13 +1188,14 @@ async def set_language(chat_id: int, lang: Optional[str]) -> None:
 
 async def note_played(
     chat_id: int, vid: Optional[str], title: Optional[str],
-    channel: Optional[str] = None, autoplayed: bool = False, **_ignored,
+    channel: Optional[str] = None, autoplayed: bool = False, record: bool = True, **_ignored,
 ) -> None:
     """Jab bhi gaana baje call karo.  Autoplay wala gaana sirf history mein jodta hai;
     user ka lagaya gaana naya 'seed' ban jata hai (lang / mood / artist / movie badal jaate hain)."""
     chat_id = int(chat_id)
     title = title or ""
-    await add_recent(chat_id, str(vid or ""), title, _resolve_artist(title, channel))
+    if record:       # played_db (call.py) alag history rakhta hai -- wahan record=False do
+        await add_recent(chat_id, str(vid or ""), title, _resolve_artist(title, channel))
     if autoplayed:
         return
     cached = _CACHE.get(chat_id) or {}
@@ -1244,7 +1335,9 @@ def _artist_hit(artist: str, title: str, channel: str = "") -> bool:
     first = a.split()[0]
     if a not in ARTIST_DB and len(first) >= 6:        # anjaan artist: "tuntun yadav" -> "tuntun"
         keys.add(first)
-    return _has_any(sorted(keys), f"{title} {channel}")
+    if _has_any(sorted(keys), f"{title} {channel}"):
+        return True
+    return _deva_artist(f"{title} {channel}") == a
 
 
 async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = None,
@@ -1290,7 +1383,7 @@ async def pick_next(chat_id: int, candidates: List[dict], ctx: Optional[dict] = 
         if mood != "devotional" and _has_any(DEVOTIONAL_WORDS, tl):
             continue
         ch = _channel_name(r)
-        if _has_any(REMIX_FAMILY, ch):                   # DJ / remix / lofi wale channels
+        if is_remix(raw, ch):                            # remix / DJ / lofi (title ya channel)
             continue
         art_hit = bool(artist) and _artist_hit(artist, raw, ch)
         if artist and strict_artist and not art_hit:     # artist-lock: dusre artist ka gaana nahi
@@ -1416,7 +1509,8 @@ async def next_autoplay_song(
         random.shuffle(stale_h)
         random.shuffle(tail)
         head = fresh_h + stale_h                          # artist ke SAARE queries tail se pehle
-        queries = head + tail[:max_queries]
+        # ARTIST-LOCK: artist pata ho to dusre artist / similar artists par KABHI nahi jao
+        queries = head if (artist and head) else head + tail[:max_queries]
         n_head = len(head)
 
         for i in range(0, len(queries), batch):
