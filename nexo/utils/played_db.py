@@ -24,6 +24,12 @@ from typing import List, Optional
 # Apne project ka mongo client path yahan se match karo
 from nexo.core.mongo import mongodb
 
+try:   # remix / version / spelling-proof title match (autoplay_context_db ka same logic)
+    from nexo.utils.autoplay_context_db import title_keys as _title_keys, _keys_match
+except Exception:  # pragma: no cover
+    _title_keys = None
+    _keys_match = None
+
 LOGGER = logging.getLogger(__name__)
 
 playeddb = mongodb.played_history
@@ -38,7 +44,10 @@ _CACHE: dict = {}
 _NOISE = re.compile(
     r"\(.*?\)|\[.*?\]|\bofficial\b|\bvideo\b|\baudio\b|\blyrics?\b|\blyrical\b|"
     r"\bfull song\b|\bfull\b|\bhd\b|\b4k\b|\bhq\b|\bmusic\b|\bsong\b|\bnew\b|"
-    r"\bft\.?\b|\bfeat\.?\b|\bvevo\b|\btopic\b",
+    r"\bft\.?\b|\bfeat\.?\b|\bvevo\b|\btopic\b|"
+    r"\br[ei]+m+[iey]+x\w*|\brmx\b|\bdj\w*|\bmix\w*|\blo ?fi\b|\bslowed\b|\breverb\b|\bversion\b|"
+    r"\bjhank\w*|\bdholki\b|\bbass\b|\bboosted\b|\bhard\b|\bjbl\b|\bunplugged\b|\bacoustic\b|"
+    r"\breprise\b|\bcover\b|\bmashup\b|\bbhojpuri\b|\bhindi\b|\bpunjabi\b|\bharyanvi\b|\b(?:19|20)\d\d\b",
     re.IGNORECASE,
 )
 _SPLIT = re.compile(r"\s[-–—|:]\s|\||\sby\s|\sx\s|,", re.IGNORECASE)
@@ -105,6 +114,16 @@ def _same_song(a: dict, b: dict, ignore: str = "") -> bool:
     """
     if a.get("v") and a.get("v") == b.get("v"):
         return True
+
+    # Gaane ka NAAM (artist / label / remix-version hata ke) mile to wahi final faisla:
+    # remix / alag upload / spelling alag => same;  same artist ke alag gaane => alag.
+    if _title_keys is not None:
+        try:
+            ka, kb = _title_keys(a.get("t") or "", ignore), _title_keys(b.get("t") or "", ignore)
+            if ka and kb:
+                return _keys_match(ka, kb)
+        except Exception:
+            pass
 
     da, db = to_seconds(a.get("d")), to_seconds(b.get("d"))
     diff = abs(da - db) if (da and db) else None
