@@ -8,14 +8,16 @@ async def get_channeplayCB(_, command, CallbackQuery):
         if chat_id is None:
             try:
                 return await CallbackQuery.answer(_["setting_7"], show_alert=True)
-            except:
+            except Exception:
                 return
         try:
-            channel = (await app.get_chat(chat_id)).title
-        except:
+            chat = await app.get_chat(int(chat_id))
+            channel = chat.title
+        except Exception as e:
+            print(f"[channelplay] get_chat failed for {chat_id!r}: {type(e).__name__}: {e}")
             try:
                 return await CallbackQuery.answer(_["cplay_4"], show_alert=True)
-            except:
+            except Exception:
                 return
     else:
         chat_id = CallbackQuery.message.chat.id
