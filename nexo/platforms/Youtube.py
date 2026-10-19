@@ -40,6 +40,20 @@ from nexo.utils.autoplay_context_db import (
     matches_core,
     matches_topic,
 )
+try:   # remix filter + artist resolve + spelling-proof same-song (autoplay_context_db)
+    from nexo.utils.autoplay_context_db import (
+        is_remix,
+        title_keys as _title_keys,
+        _keys_match,
+        _resolve_artist,
+    )
+except ImportError:  # pragma: no cover
+    _title_keys = None
+    _keys_match = None
+    _resolve_artist = None
+
+    def is_remix(*_a, **_k):
+        return False
 try:   # artist-lock (autoplay_context_db v3+): ek artist ka gaana lagao to usi ke gaane
     from nexo.utils.autoplay_context_db import build_artist_queries, _artist_hit
 except ImportError:  # pragma: no cover
@@ -434,8 +448,8 @@ async def validate_playable_stream_url(url: str, media_type: str = "audio") -> b
 _TITLE_NOISE_RE = re.compile(
     r"\b(official|video|audio|lyrics?|lyrical|full|hd|4k|hq|visualizer|song|songs|"
     r"music|new|latest|feat\.?|ft\.?|prod\.?|by|from|the|"
-    r"remix(?:es|ed)?|rmx|re-?mix|dj|lo-?fi|slowed|reverb|sped|speed|up|nightcore|"
-    r"8d|cover|mashup|mash-?up|bass|boosted?|version|mix|edit|jhankar|"
+    r"r[ei]+m+[iey]+x\w*|rmx|re-?mix|dj\w*|lo-?fi|slowed|reverb|sped|speed|up|nightcore|"
+    r"8d|cover|mashup|mash-?up|bass|boosted?|version|mix\w*|edit|jhank\w*|dholki|trap|edm|nonstop|tapori|jbl|"
     r"unplugged|acoustic|reprise|extended|original|full|status|shorts?)\b",
     re.IGNORECASE,
 )
@@ -449,6 +463,13 @@ def _title_tokens(title: str) -> set:
 
 def _same_title(a: str, b: str, da: int = 0, db: int = 0) -> bool:
     """Do title ek hi gaane ke lagte hain? (brackets / official / lyrics / remix ignore)"""
+    if _title_keys is not None:
+        try:   # artist / label / remix-version hata ke gaane ka NAAM compare (artist ke tokens "shared" nahi ginte)
+            ka, kb = _title_keys(a or ""), _title_keys(b or "")
+            if ka and kb:
+                return _keys_match(ka, kb)
+        except Exception:
+            pass
     ta, tb = _title_tokens(a), _title_tokens(b)
     if not ta or not tb:
         return False
@@ -472,6 +493,8 @@ def _same_title(a: str, b: str, da: int = 0, db: int = 0) -> bool:
 # NEW SONGS FIRST: autoplay mein naye (recent upload) gaane pehle, har baar alag
 # ---------------------------------------------------------------------------
 AUTOPLAY_NEW_DAYS = max(1, int_env("AUTOPLAY_NEW_DAYS", 180))     # itne din tak ka upload = "new"
+AUTOPLAY_ARTIST_QUERIES = max(6, int_env("AUTOPLAY_ARTIST_QUERIES", 24))   # artist-lock: itni queries tak dhundho
+AUTOPLAY_ARTIST_STRICT = bool_env("AUTOPLAY_ARTIST_STRICT", True)          # True = artist ke gaane khatam to STOP, dusra artist nahi
 AUTOPLAY_POOL = max(3, int_env("AUTOPLAY_POOL", 12))              # itne candidates mein se sabse naya chuno
 AUTOPLAY_POOL_HARD = max(AUTOPLAY_POOL, int_env("AUTOPLAY_POOL_HARD", 40))  # naya na mile to itna tak dhundho
 
@@ -841,6 +864,11 @@ class YouTubeAPI:
         seed_lang = normalize_lang(lang) if lang else (c.get("lang") or None)
         seed_mood = mood or c.get("mood") or None
         seed_artist = (c.get("artist") or "").strip()
+        if not seed_artist and _resolve_artist is not None:
+            try:   # seed ke title / channel se artist (ctx save nahi hua ho tab bhi)
+                seed_artist = _resolve_artist(title, channel or seed_channel_from(await get_first())) or ""
+            except Exception as err:
+                logger.warning("Autoplay artist resolve failed: %s", err)
         if _LANG_LOCK:
             await warm_channel_langs()
             ch0 = channel
@@ -881,17 +909,25 @@ class YouTubeAPI:
             # 0) ARTIST-LOCK: seed ke artist ke hi gaane pehle (Hindi / dusre artist par switch nahi)
             if seed_artist:
                 art_qs = build_artist_queries(seed_artist, seed_lang or "")
-                random.shuffle(art_qs)
-                for text in art_qs[:6]:
+                plain = [q for q in art_qs if not re.search(r"\b(?:19|20)\d\d\b", q)]
+                yearly = [q for q in art_qs if q not in plain]
+                random.shuffle(plain)
+                random.shuffle(yearly)
+                for text in (plain + yearly)[:AUTOPLAY_ARTIST_QUERIES]:
                     for r in await search_page(text):
                         yield r
                     if len(pool) >= 3:
                         return                      # artist ke kaafi gaane mil gaye
                 if pool:
                     return
-                artist_phase["on"] = False          # artist ke fresh gaane khatam -> normal fallback
+                if AUTOPLAY_ARTIST_STRICT:          # lock NAHI todna: dusre artist ka gaana nahi chalega
+                    logger.info("Autoplay: %r ke fresh gaane khatam -- artist-lock strict, stop", seed_artist)
+                    return
+                artist_phase["on"] = False
                 logger.info("Autoplay: %r ke fresh gaane nahi mile, normal fallback", seed_artist)
 
+            if seed_artist and AUTOPLAY_ARTIST_STRICT:
+                return                                      # artist-lock: related / similar songs nahi
             # 1) YouTube ke related gaane (agar library support kare)
             if videoid and Recommendations is not None:
                 try:
@@ -950,6 +986,8 @@ class YouTubeAPI:
                 channel = candidate.get("channel")
                 ch_name = channel.get("name") if isinstance(channel, dict) else None
                 age = _age_days(candidate.get("publishedTime"))
+                if is_remix(candidate.get("title") or "", ch_name or ""):
+                    continue                                # remix / DJ / lofi / slowed -- kabhi nahi
                 art_hit = bool(seed_artist) and _artist_hit(seed_artist, candidate.get("title") or "", ch_name or "")
                 if artist_phase["on"] and not art_hit:     # artist-lock: dusre artist ka gaana nahi
                     continue
@@ -1158,6 +1196,8 @@ class YouTubeAPI:
                 channel = r.get("channel")
                 ch_name = channel.get("name") if isinstance(channel, dict) else None
                 title = r.get("title")
+                if is_remix(title or "", ch_name or ""):
+                    continue  # remix / DJ / lofi nahi
 
                 if kind == "artist":
                     if not matches_core(core, title, ch_name, aliases):
