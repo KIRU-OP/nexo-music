@@ -28,7 +28,6 @@ pyfiglet
 pyshorteners
 python-dotenv
 python-whois
-git+https://github.com/SkyBotsDeveloper/youtube-search-python.git
 pyyaml
 qrcode
 requests
