@@ -6,24 +6,48 @@ from pyrogram.errors import TopicClosed
 from nexo import app
 from nexo.mongo.welcomedb import is_on, set_state, bump, cool
 
-BG_PATH = "nexo/assets/vivaan/welcome.png"
+# ───────────────────────── PATHS ─────────────────────────
+BG_PATH = "nexo/assets/vivaan/welcome.png"      # 1672x941 template
 FALLBACK_PIC = "nexo/assets/upic.png"
 FONT_PATH = "nexo/assets/vivaan/Arimo.ttf"
-BTN_VIEW = "๏ ᴠɪᴇᴡ ɴᴇᴡ ᴍᴇᴍʙᴇʀ ๏"
-BTN_ADD = "๏ ᴋɪᴅɴᴀᴘ ᴍᴇ ๏"
 
+# ───────────────────────── BUTTONS ─────────────────────────
+BTN_VIEW = "🦚 ᴠɪᴇᴡ ɴᴇᴡ ᴍᴇᴍʙᴇʀ 🦚"
+BTN_ADD = "🪈 ᴋɪᴅɴᴀᴘ ᴍᴇ 🪈"
+
+# ───────────────────────── CAPTION ─────────────────────────
 CAPTION_TXT = """
-**❅────✦ ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ✦────❅
-{chat_title}
-▰▰▰▰▰▰▰▰▰▰▰▰▰
-➻ Nᴀᴍᴇ ✧ {mention}
-➻ Iᴅ ✧ `{uid}`
-➻ Usᴇʀɴᴀᴍᴇ ✧ @{uname}
-➻ Tᴏᴛᴀʟ Mᴇᴍʙᴇʀs ✧ {count}
-▰▰▰▰▰▰▰▰▰▰▰▰▰**
-**❅─────✧❅✦❅✧─────❅**
+**🦚 ❅──────✦ ʀᴀᴅʜᴇ ʀᴀᴅʜᴇ ✦──────❅ 🦚
+
+🪈 ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ 🪈
+✨ {chat_title} ✨
+
+🪷 ▰▰▰▰▰▰▰▰▰▰▰▰▰ 🪷
+
+🌸 Nᴀᴍᴇ  ➪  {mention}
+🦋 Iᴅ  ➪  {uid}
+💙 Usᴇʀɴᴀᴍᴇ  ➪  {uname}
+👥 Tᴏᴛᴀʟ Mᴇᴍʙᴇʀs  ➪  {count}
+
+🪷 ▰▰▰▰▰▰▰▰▰▰▰▰▰ 🪷
+
+🌙 ᴍᴀʏ ᴋʀɪsʜɴᴀ's ʙʟᴇssɪɴɢs ᴀʟᴡᴀʏs ᴡᴀᴛᴄʜ ᴏᴠᴇʀ ʏᴏᴜ 🌙
+💫 ᴇɴᴊᴏʏ ʏᴏᴜʀ sᴛᴀʏ ᴡɪᴛʜ ᴜs & sᴘʀᴇᴀᴅ ʟᴏᴠᴇ 💫
+
+🦚 ❅────✧ ᴊᴀɪ sʜʀᴇᴇ ᴋʀɪsʜɴᴀ ✧────❅ 🦚**
 """
 
+# ───────────────────────── IMAGE LAYOUT (1672x941) ─────────────────────────
+AVATAR_SIZE = 520           # circle photo area inside the glowing frame
+AVATAR_POS = (1043, 215)    # top-left of avatar
+
+NAME_POS = (290, 437)       # left edge, vertical centre of text
+ID_POS = (232, 590)
+UNAME_POS = (372, 741)
+MAX_TEXT_W = 590            # field ends around x=900
+TEXT_COLOR = (255, 255, 255)
+
+# ───────────────────────── ANTI-SPAM SETTINGS ─────────────────────────
 JOIN_THRESHOLD = 20
 TIME_WINDOW = 10
 COOL_MINUTES = 5
@@ -39,23 +63,35 @@ def _cooldown_minutes(burst: int, threshold: int = JOIN_THRESHOLD, base: int = C
     return min(60, base + extra * 2)
 
 
-def _circle(im, size=(835, 839)):
+def _circle(im, size=(AVATAR_SIZE, AVATAR_SIZE)):
     im = im.resize(size, Image.LANCZOS).convert("RGBA")
     mask = Image.new("L", size, 0)
-    ImageDraw.Draw(mask).ellipse((0, 0, *size), fill=255)
+    ImageDraw.Draw(mask).ellipse((0, 0, size[0] - 1, size[1] - 1), fill=255)
     im.putalpha(mask)
     return im
+
+
+def _fit_font(draw, text, max_w, start=44, min_size=22):
+    size = start
+    while size > min_size:
+        f = ImageFont.truetype(FONT_PATH, size)
+        if draw.textlength(text, font=f) <= max_w:
+            return f
+        size -= 2
+    return ImageFont.truetype(FONT_PATH, min_size)
 
 
 def build_pic(av, fn, uid, un):
     bg = Image.open(BG_PATH).convert("RGBA")
     avatar = _circle(Image.open(av))
-    bg.paste(avatar, (1887, 390), avatar)
+    bg.paste(avatar, AVATAR_POS, avatar)
+
     draw = ImageDraw.Draw(bg)
-    font = ImageFont.truetype(FONT_PATH, 65)
-    draw.text((421, 715), fn, fill=(242, 242, 242), font=font)
-    draw.text((270, 1005), str(uid), fill=(242, 242, 242), font=font)
-    draw.text((570, 1308), un, fill=(242, 242, 242), font=font)
+    for text, pos in ((fn, NAME_POS), (str(uid), ID_POS), (un, UNAME_POS)):
+        font = _fit_font(draw, text, MAX_TEXT_W)
+        draw.text(pos, text, fill=TEXT_COLOR, font=font, anchor="lm")
+
+    os.makedirs("downloads", exist_ok=True)
     path = f"downloads/welcome_{uid}.png"
     bg.save(path)
     return path
@@ -112,15 +148,18 @@ async def welcome(client, update: ChatMemberUpdated):
     user = new.user
     avatar = img = None
     try:
-        avatar = await client.download_media(user.photo.big_file_id, file_name=f"downloads/pp_{user.id}.png") if user.photo else FALLBACK_PIC
+        avatar = (
+            await client.download_media(user.photo.big_file_id, file_name=f"downloads/pp_{user.id}.png")
+            if user.photo else FALLBACK_PIC
+        )
         img = build_pic(avatar, user.first_name, user.id, user.username or "No Username")
         members = await client.get_chat_members_count(cid)
         caption = CAPTION_TXT.format(
             chat_title=update.chat.title,
             mention=user.mention,
             uid=user.id,
-            uname=user.username or "No Username",
-            count=members
+            uname=f"@{user.username}" if user.username else "No Username",
+            count=members,
         )
         try:
             sent = await client.send_photo(
@@ -140,13 +179,13 @@ async def welcome(client, update: ChatMemberUpdated):
             old_msg = last_messages[cid].pop(0)
             try:
                 await old_msg.delete()
-            except:
+            except Exception:
                 pass
     except TopicClosed:
         return
     except Exception:
         try:
-            await client.send_message(cid, f"🎉 Welcome, {user.mention}!")
+            await client.send_message(cid, f"🦚 Radhe Radhe, {user.mention}! 🦚")
         except TopicClosed:
             return
     finally:
@@ -154,5 +193,5 @@ async def welcome(client, update: ChatMemberUpdated):
             if f and os.path.exists(f) and "nexo/assets" not in f:
                 try:
                     os.remove(f)
-                except:
+                except Exception:
                     pass
