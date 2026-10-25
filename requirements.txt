@@ -36,5 +36,5 @@ SpeechRecognition
 spotipy
 tgcrypto
 unidecode
-yt-dlp==2026.7.4
+yt-dlp==2026.10.21
 youtube-search-python
