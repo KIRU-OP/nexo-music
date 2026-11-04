@@ -3,7 +3,7 @@
 # so nothing exits silently.
 set -Euo pipefail
 
-# ======== VivaanXMusic Setup (fixed) ========
+# ======== nexo-music Setup (fixed) ========
 # - Debian/Ubuntu apt only
 # - Errors are shown on screen (last lines of the log)
 # - Works as root (Railway) with or without sudo
@@ -142,7 +142,7 @@ install_node(){
     return 0
   fi
   info "Installing Node.js LTS"
-  if ! curl -fsSL https://deb.nodesource.com/setup_22.x | $SUDO -E bash - >>"$NODELOG" 2>&1; then
+  if ! curl -fsSL https://deb.nodesource.com/setup_22.x | ${SUDO:+$SUDO -E} bash - >>"$NODELOG" 2>&1; then
     bad "NodeSource setup failed"; tail -n 15 "$NODELOG" | sed 's/^/    /'; return 1
   fi
   run "$NODELOG" "Installing nodejs" $SUDO apt-get install -yq nodejs || return 1
