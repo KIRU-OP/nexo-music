@@ -170,6 +170,8 @@ install_python(){
   # No 'activate' needed: call the venv python directly.
   run "$PYLOG" "Upgrading pip, setuptools, wheel" ./.venv/bin/python -m pip install -U pip setuptools wheel || return 1
   run "$PYLOG" "Installing requirements.txt (can take a few minutes)" ./.venv/bin/python -m pip install -Ur requirements.txt || return 1
+  # youtubesearchpython httpx>=0.28 ke saath toot jaata hai ("proxies" error) -> Unknown Title/Channel/Views
+  run "$PYLOG" "Pinning httpx<0.28 (youtubesearchpython compatibility)" ./.venv/bin/python -m pip install "httpx<0.28" || return 1
   good "Python deps installed"
 }
 
