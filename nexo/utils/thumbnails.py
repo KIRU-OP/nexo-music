@@ -21,7 +21,7 @@ from nexo.core.dir import CACHE_DIR
 TITLE_FONT_PATH = "nexo/assets/thumb/font2.ttf"
 META_FONT_PATH = "nexo/assets/thumb/font.ttf"
 FALLBACK_AVATAR_URL = "https://files.catbox.moe/0ld5qc.jpg"
-THUMB_CACHE_VERSION = "v27"   # bump: purane "Unknown Title" wale cached cards invalid
+THUMB_CACHE_VERSION = "v28"   # bump: purane "Unknown Title" wale cached cards invalid
 THUMBNAIL_FETCH_TIMEOUT = aiohttp.ClientTimeout(total=16.0, connect=5.0, sock_read=8.0)
 THUMBNAIL_FETCH_HEADERS = {
     "User-Agent": (
@@ -937,19 +937,77 @@ def _ytdlp_meta_sync(videoid: str) -> dict | None:
     }
 
 
+def _ytdlp_search_meta_sync(videoid: str) -> dict | None:
+    """yt-dlp flat search (ytsearch) -- watch-page bot-check se bachta hai, Youtube.py ka fallback bhi yahi karta hai."""
+    options = {
+        "quiet": True, "no_warnings": True, "skip_download": True,
+        "socket_timeout": 10, "retries": 1, "noplaylist": True,
+        "extract_flat": "in_playlist",
+        "logger": QuietYtDlpLogger(),
+    }
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(f"ytsearch5:{videoid}", download=False)
+    for entry in (info or {}).get("entries") or []:
+        if not entry or entry.get("id") != videoid:
+            continue
+        thumbs = [{"url": t["url"]} for t in (entry.get("thumbnails") or []) if t.get("url")]
+        return {
+            "id": videoid,
+            "title": entry.get("title") or "",
+            "duration": _fmt_duration(entry.get("duration")),
+            "viewCount": {"short": _fmt_views(entry.get("view_count"))},
+            "channel": {"name": entry.get("channel") or entry.get("uploader") or ""},
+            "thumbnails": thumbs,
+        }
+    return None
+
+
+async def _oembed_meta(videoid: str) -> dict | None:
+    """YouTube oEmbed: sirf title + channel (views/duration nahi), par bot-check / API key nahi lagti."""
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            async with session.get(
+                "https://www.youtube.com/oembed",
+                params={"url": f"https://www.youtube.com/watch?v={videoid}", "format": "json"},
+                headers=THUMBNAIL_FETCH_HEADERS,
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json(content_type=None)
+    except Exception:
+        return None
+    return {
+        "id": videoid,
+        "title": data.get("title") or "",
+        "duration": "",
+        "viewCount": {"short": ""},
+        "channel": {"name": data.get("author_name") or ""},
+        "thumbnails": [],
+    }
+
+
 async def lookup_video_meta(videoid: str) -> dict | None:
-    """Pehle VideosSearch; 'proxies' / koi bhi error par yt-dlp fallback (Unknown card nahi banega)."""
+    """Metadata chain (pehla jo title de wahi use): VideosSearch -> yt-dlp watch page ->
+    yt-dlp search -> oEmbed. Koi ek chal gaya to card 'Unknown' nahi banega."""
     url = f"https://www.youtube.com/watch?v={videoid}"
     try:
         data = (await VideosSearch(url, limit=1).next()).get("result", [])
-        if data:
+        if data and data[0].get("title"):
             return data[0]
     except Exception:
         pass
-    try:
-        return await asyncio.to_thread(_ytdlp_meta_sync, videoid)
-    except Exception:
-        return None
+    for fetch in (
+        lambda: asyncio.to_thread(_ytdlp_meta_sync, videoid),
+        lambda: asyncio.to_thread(_ytdlp_search_meta_sync, videoid),
+        lambda: _oembed_meta(videoid),
+    ):
+        try:
+            meta = await fetch()
+            if meta and meta.get("title"):
+                return meta
+        except Exception:
+            continue
+    return None
 
 
 async def get_thumb(videoid, user_id=None):
