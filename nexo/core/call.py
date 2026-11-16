@@ -672,7 +672,7 @@ class Call:
                 notify_chat_id,
                 f"Joined VC\nName: {name}{username}\nUser ID: <code>{user_id}</code>",
             )
-        except (ChatWriteForbidden, ChatSendPlainForbidden, Forbidden):
+        except (ChatWriteForbidden, Forbidden):
             LOGGER(__name__).warning(
                 "Disabling VC join notifications for chat %s because the bot cannot send messages there.",
                 notify_chat_id,
