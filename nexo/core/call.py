@@ -8,6 +8,11 @@ from ntgcalls import TelegramServerError
 from pyrogram import Client
 from pyrogram.enums import ChatType
 from pyrogram.errors import ChatAdminRequired, ChatWriteForbidden, Forbidden
+import pyrogram.errors as pyrogram_errors
+
+# Compatibility for PyTgCalls versions expecting an error class removed by Kurigram.
+if not hasattr(pyrogram_errors, "GroupcallForbidden"):
+    pyrogram_errors.GroupcallForbidden = pyrogram_errors.Forbidden
 from pyrogram.handlers import RawUpdateHandler
 from pyrogram.raw.functions.channels import GetFullChannel
 from pyrogram.raw.functions.messages import GetFullChat
