@@ -10,9 +10,16 @@ from pyrogram.enums import ChatType
 from pyrogram.errors import ChatAdminRequired, ChatWriteForbidden, Forbidden
 import pyrogram.errors as pyrogram_errors
 
-# Compatibility for PyTgCalls versions expecting an error class removed by Kurigram.
+# Compatibility for PyTgCalls versions using legacy Pyrogram error-class names.
+# Kurigram uses the newer GroupCall* capitalization.
 if not hasattr(pyrogram_errors, "GroupcallForbidden"):
-    pyrogram_errors.GroupcallForbidden = pyrogram_errors.Forbidden
+    pyrogram_errors.GroupcallForbidden = getattr(
+        pyrogram_errors, "GroupCallForbidden", pyrogram_errors.Forbidden
+    )
+if not hasattr(pyrogram_errors, "GroupcallInvalid"):
+    pyrogram_errors.GroupcallInvalid = getattr(
+        pyrogram_errors, "GroupCallInvalid", pyrogram_errors.BadRequest
+    )
 from pyrogram.handlers import RawUpdateHandler
 from pyrogram.raw.functions.channels import GetFullChannel
 from pyrogram.raw.functions.messages import GetFullChat
