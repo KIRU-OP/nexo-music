@@ -119,7 +119,7 @@ def control_buttons(_, chat_id, autoplay=None):
             success_button(text="▷", callback_data=f"ADMIN Resume|{chat_id}"),
             primary_button(text="II", callback_data=f"ADMIN Pause|{chat_id}"),
             InlineKeyboardButton(text="↻", callback_data=f"ADMIN Replay|{chat_id}"),
-            primary_button(text="⏭ Skip Song", callback_data=f"ADMIN Skip|{chat_id}"),
+            primary_button(text="‣‣I", callback_data=f"ADMIN Skip|{chat_id}"),
             danger_button(text="▢", callback_data=f"ADMIN Stop|{chat_id}"),
         ],
         [autoplay_button(chat_id)],
