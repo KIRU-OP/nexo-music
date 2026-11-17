@@ -29,6 +29,7 @@ from nexo.utils.database import (
     is_music_playing,
     is_muted,
     is_nonadmin_chat,
+    group_assistant,
     music_off,
     music_on,
     mute_off,
@@ -48,6 +49,9 @@ from nexo.utils.stream.cards import schedule_stream_card
 
 checker = {}
 upvoters = {}
+
+# Prevent simultaneous skip callbacks from advancing multiple tracks.
+skip_locks = {}
 
 
 async def _safe_edit_callback_message(callback: CallbackQuery, text: str, reply_markup=None):
@@ -162,7 +166,7 @@ async def manage_callback(client, callback: CallbackQuery, _):
             return
         command = new_command
         user_mention = new_mention
-    else:
+    elif command != "Skip":
         if not await is_nonadmin_chat(callback.message.chat.id) and callback.from_user.id not in SUDOERS:
             admins = adminlist.get(callback.message.chat.id)
             if not admins:
@@ -238,11 +242,38 @@ async def manage_callback(client, callback: CallbackQuery, _):
         playlist.insert(0, popped)
         await callback.message.reply_text(_["admin_44"].format(user_mention))
 
-    elif command in ["Skip", "Replay"]:
+    elif command == "Skip":
+        await handle_user_skip(callback, _, chat_id, user_mention)
+
+    elif command == "Replay":
         await handle_skip_replay(callback, _, chat_id, command, user_mention)
 
     else:
         await handle_seek(callback, _, chat_id, command, user_mention)
+
+
+async def handle_user_skip(callback: CallbackQuery, _, chat_id: int, user_mention: str):
+    """Allow any group member to skip the current track, including autoplay picks."""
+    lock = skip_locks.setdefault(chat_id, asyncio.Lock())
+    if lock.locked():
+        return await callback.answer("A skip is already being processed.", show_alert=True)
+
+    async with lock:
+        if not db.get(chat_id):
+            return await callback.answer(_["queue_2"], show_alert=True)
+
+        await callback.answer(f"⏭ Skipped by {callback.from_user.first_name}")
+
+        try:
+            # JARVIS.play removes the current queue head, starts the next
+            # queued track, or requests a fresh autoplay recommendation.
+            assistant = await group_assistant(JARVIS, chat_id)
+            await JARVIS.play(assistant, chat_id)
+        except Exception:
+            await _safe_reply_callback_message(
+                callback,
+                "Could not skip this track. Please try again.",
+            )
 
 
 async def handle_skip_replay(callback: CallbackQuery, _, chat_id: int, command: str, user_mention: str):
