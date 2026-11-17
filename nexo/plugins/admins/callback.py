@@ -24,6 +24,7 @@ from nexo.utils.database import (
     get_active_chats,
     get_assistant,
     get_lang,
+    get_loop,
     get_upvote_count,
     is_active_chat,
     is_music_playing,
@@ -264,7 +265,13 @@ async def handle_user_skip(callback: CallbackQuery, _, chat_id: int, user_mentio
 
         await callback.answer(f"⏭ Skipped by {callback.from_user.first_name}")
 
+        original_loop = await get_loop(chat_id)
         try:
+            # Disable the current loop count for this one transition so Skip
+            # always advances instead of replaying the same track.
+            if original_loop:
+                await set_loop(chat_id, 0)
+
             # JARVIS.play removes the current queue head, starts the next
             # queued track, or requests a fresh autoplay recommendation.
             assistant = await group_assistant(JARVIS, chat_id)
@@ -274,6 +281,9 @@ async def handle_user_skip(callback: CallbackQuery, _, chat_id: int, user_mentio
                 callback,
                 "Could not skip this track. Please try again.",
             )
+        finally:
+            if original_loop:
+                await set_loop(chat_id, original_loop)
 
 
 async def handle_skip_replay(callback: CallbackQuery, _, chat_id: int, command: str, user_mention: str):
