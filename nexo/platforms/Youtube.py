@@ -1832,6 +1832,78 @@ class YouTubeAPI:
                 None, fetch_worker_fallback_links_sync, vid_id, media_format
             )
 
+        async def download_youtube_fallback(vid_id, media_type):
+            """Last-resort download from the canonical YouTube URL via yt-dlp."""
+            os.makedirs("downloads", exist_ok=True)
+            extension = "mp4" if media_type == "video" else "mp3"
+            final_path = os.path.join("downloads", f"{vid_id}.{extension}")
+            output_template = os.path.join("downloads", f"{vid_id}.%(ext)s")
+
+            def run_download():
+                options = {
+                    "quiet": True,
+                    "no_warnings": True,
+                    "noprogress": True,
+                    "noplaylist": True,
+                    "socket_timeout": 30,
+                    "retries": 3,
+                    "fragment_retries": 3,
+                    "continuedl": True,
+                    "overwrites": True,
+                    "outtmpl": output_template,
+                    "geo_bypass": True,
+                    "http_headers": {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36",
+                        "Referer": "https://www.youtube.com/",
+                    },
+                }
+                if media_type == "video":
+                    options.update({
+                        "format": "best[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]+bestaudio/best",
+                        "merge_output_format": "mp4",
+                    })
+                else:
+                    options.update({
+                        "format": "bestaudio/best",
+                        "postprocessors": [{
+                            "key": "FFmpegExtractAudio",
+                            "preferredcodec": "mp3",
+                            "preferredquality": "192",
+                        }],
+                    })
+                with yt_dlp.YoutubeDL(options) as ydl:
+                    ydl.download([f"https://www.youtube.com/watch?v={vid_id}"])
+
+            try:
+                await loop.run_in_executor(None, run_download)
+                if cached_media_ready(final_path):
+                    logger.info(
+                        "YouTube yt-dlp fallback succeeded | media=%s | video_id=%s | title=%s",
+                        media_type, vid_id, log_title,
+                    )
+                    return final_path
+                # Some yt-dlp/ffmpeg versions keep the merged file under a different
+                # extension. Accept a valid result rather than reporting a false failure.
+                for entry in os.scandir("downloads"):
+                    if not entry.is_file() or not entry.name.startswith(f"{vid_id}."):
+                        continue
+                    if not entry.name.lower().endswith((".mp4", ".mkv", ".webm", ".mp3", ".m4a", ".opus")):
+                        continue
+                    try:
+                        if entry.stat().st_size < MIN_CACHED_MEDIA_BYTES:
+                            continue
+                        if media_type == "audio" and not entry.name.lower().endswith(".mp3"):
+                            continue
+                        return entry.path
+                    except OSError:
+                        continue
+            except Exception as exc:
+                logger.warning(
+                    "YouTube yt-dlp fallback failed | media=%s | video_id=%s | title=%s | reason=%s",
+                    media_type, vid_id, log_title, exc,
+                )
+            return None
+
         async def audio_dl(vid_id):
             filepath = os.path.join("downloads", f"{vid_id}.mp3")
             if cached_media_ready(filepath):
@@ -1911,9 +1983,15 @@ class YouTubeAPI:
                     mark_source(vid_id, "audio", "XBIT FALLBACK")
                     return result, True
 
-            mark_source(vid_id, "audio", "WORKER PRIMARY + XBIT FALLBACK", ok=False)
+            # Last resort: download from YouTube itself when both configured APIs fail.
+            fallback_file = await download_youtube_fallback(vid_id, "audio")
+            if fallback_file:
+                mark_source(vid_id, "audio", "YOUTUBE YT-DLP FALLBACK")
+                return fallback_file, True
+
+            mark_source(vid_id, "audio", "WORKER PRIMARY + XBIT FALLBACK + YT-DLP", ok=False)
             logger.error(
-                "YouTube source failed | sources=worker_primary,xbit_fallback | media=audio | video_id=%s | title=%s",
+                "YouTube source failed | sources=worker_primary,xbit_fallback,ytdlp | media=audio | video_id=%s | title=%s",
                 vid_id,
                 log_title,
             )
@@ -1999,9 +2077,15 @@ class YouTubeAPI:
                     mark_source(vid_id, "video", "XBIT FALLBACK")
                     return result, True
 
-            mark_source(vid_id, "video", "WORKER PRIMARY + XBIT FALLBACK", ok=False)
+            # Last resort: download from YouTube itself when both configured APIs fail.
+            fallback_file = await download_youtube_fallback(vid_id, "video")
+            if fallback_file:
+                mark_source(vid_id, "video", "YOUTUBE YT-DLP FALLBACK")
+                return fallback_file, True
+
+            mark_source(vid_id, "video", "WORKER PRIMARY + XBIT FALLBACK + YT-DLP", ok=False)
             logger.error(
-                "YouTube source failed | sources=worker_primary,xbit_fallback | media=video | video_id=%s | title=%s",
+                "YouTube source failed | sources=worker_primary,xbit_fallback,ytdlp | media=video | video_id=%s | title=%s",
                 vid_id,
                 log_title,
             )
