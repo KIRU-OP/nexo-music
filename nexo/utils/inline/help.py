@@ -11,17 +11,29 @@ BUTTON_LABEL_OVERRIDES = {
 
 
 def generate_help_buttons(_, start: int, end: int, current_page: int):
+    sections = list(range(start, end + 1))
     buttons = []
-    per_row = 4
-    for idx, section in enumerate(range(start, end + 1)):
-        if idx % per_row == 0:
-            buttons.append([])
-        buttons[-1].append(
-            InlineKeyboardButton(
-                text=BUTTON_LABEL_OVERRIDES.get(section, _[f"H_B_{section}"]),
-                callback_data=f"help_callback hb{section}_p{current_page}",
+
+    # Keep a maximum of four buttons per row, while balancing the final
+    # rows so a short last row does not stretch its buttons excessively.
+    max_per_row = 4
+    row_count = (len(sections) + max_per_row - 1) // max_per_row
+    base_size, extra = divmod(len(sections), row_count)
+
+    offset = 0
+    for row_index in range(row_count):
+        row_size = base_size + (1 if row_index < extra else 0)
+        row = []
+        for section in sections[offset : offset + row_size]:
+            row.append(
+                InlineKeyboardButton(
+                    text=BUTTON_LABEL_OVERRIDES.get(section, _[f"H_B_{section}"]),
+                    callback_data=f"help_callback hb{section}_p{current_page}",
+                )
             )
-        )
+        buttons.append(row)
+        offset += row_size
+
     return buttons
 
 
@@ -86,4 +98,4 @@ def private_help_panel(_):
                 url=f"https://t.me/{app.username}?start=help",
             )
         ]
-                    ]
+    ]
