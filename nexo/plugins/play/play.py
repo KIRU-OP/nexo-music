@@ -4,7 +4,7 @@ import string
 from os import getenv
 
 from pyrogram import filters
-from pyrogram.errors import FloodWait, RandomIdDuplicate
+from pyrogram.errors import FloodWait, RandomIdDuplicate, MessageIdInvalid
 from pyrogram.types import InlineKeyboardMarkup, InputMediaPhoto, Message
 from pytgcalls.exceptions import NoActiveGroupCall
 
@@ -539,7 +539,12 @@ async def play_command(
                 streamtype=f"{log_label} Failed",
                 source=source,
             )
-            return await mystic.edit_text(err)
+            try:
+                return await mystic.edit_text(err)
+            except MessageIdInvalid:
+                # The status message may have been deleted or become uneditable.
+                # Send the error as a fresh message instead of crashing the handler.
+                return await app.send_message(message.chat.id, str(err))
 
         await mystic.delete()
         source = None
