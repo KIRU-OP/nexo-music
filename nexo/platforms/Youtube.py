@@ -1887,12 +1887,15 @@ class YouTubeAPI:
                 for entry in os.scandir("downloads"):
                     if not entry.is_file() or not entry.name.startswith(f"{vid_id}."):
                         continue
-                    if not entry.name.lower().endswith((".mp4", ".mkv", ".webm", ".mp3", ".m4a", ".opus")):
+                    allowed_extensions = (
+                        (".mp4", ".mkv", ".webm")
+                        if media_type == "video"
+                        else (".mp3",)
+                    )
+                    if not entry.name.lower().endswith(allowed_extensions):
                         continue
                     try:
                         if entry.stat().st_size < MIN_CACHED_MEDIA_BYTES:
-                            continue
-                        if media_type == "audio" and not entry.name.lower().endswith(".mp3"):
                             continue
                         return entry.path
                     except OSError:
