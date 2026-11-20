@@ -60,6 +60,7 @@ async def _join_youtube_with_fallback(
         video=is_video,
         videoid=vidid,
         title=title,
+        stream=False,
     )
     if not fallback_path:
         raise AssistantErr("Unable to prepare YouTube stream.")
