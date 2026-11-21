@@ -39,6 +39,7 @@ from nexo.utils.autoplay_context_db import (
     looks_like_artist,
     matches_core,
     matches_topic,
+    detect_mood,
 )
 try:   # remix filter + artist resolve + spelling-proof same-song (autoplay_context_db)
     from nexo.utils.autoplay_context_db import (
@@ -1205,6 +1206,11 @@ class YouTubeAPI:
                 channel = r.get("channel")
                 ch_name = channel.get("name") if isinstance(channel, dict) else None
                 title = r.get("title")
+                # Artist autoplay ko seed ke mood se match rakho: normal/love/party
+                # track ke baad sad catalogue results tab tak nahi aane chahiye
+                # jab tak user ne khud sad track se autoplay context start na kiya ho.
+                if detect_mood(title or "") == "sad" and ctx_mood != "sad":
+                    continue
                 if is_remix(title or "", ch_name or ""):
                     continue  # remix / DJ / lofi nahi
 
