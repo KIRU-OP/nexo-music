@@ -114,7 +114,9 @@ async def update_(client, message, _):
             f"<u><b>ᴜᴩᴅᴀᴛᴇs :</b></u>\n\n<a href={url}>ᴄʜᴇᴄᴋ ᴜᴩᴅᴀᴛᴇs</a>"
         )
     else:
-        nrs = await response.edit(_final_updates_, disable_web_page_preview=True)
+        # Kurigram/Pyrogram builds differ: edit_text() may not accept
+        # disable_web_page_preview. Omit the optional preview flag for compatibility.
+        nrs = await response.edit_text(_final_updates_)
 
     stash = subprocess.run(
         ["git", "stash"],
