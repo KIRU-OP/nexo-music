@@ -1,5 +1,45 @@
 import asyncio
 import importlib
+import os
+import subprocess
+
+
+def auto_git_pull():
+    """Fetch and fast-forward the checked-out branch before loading bot modules."""
+    enabled = os.getenv("NEXO_AUTO_GIT_PULL", "1").strip().lower()
+    if enabled in {"0", "false", "no", "off"}:
+        print("[AUTO-UPDATE] Disabled by NEXO_AUTO_GIT_PULL.")
+        return
+
+    try:
+        branch_result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            check=True, capture_output=True, text=True, timeout=15,
+        )
+        branch = branch_result.stdout.strip()
+        if not branch:
+            print("[AUTO-UPDATE] Detached HEAD; skipping automatic update.")
+            return
+
+        subprocess.run(
+            ["git", "fetch", "--prune", "origin", branch],
+            check=True, capture_output=True, text=True, timeout=120,
+        )
+        subprocess.run(
+            ["git", "merge", "--ff-only", "FETCH_HEAD"],
+            check=True, capture_output=True, text=True, timeout=120,
+        )
+        print(f"[AUTO-UPDATE] Repository is up to date (origin/{branch}).")
+    except FileNotFoundError:
+        print("[AUTO-UPDATE] Git is not installed; skipping automatic update.")
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        print(f"[AUTO-UPDATE] Could not update repository: {detail}")
+    except subprocess.TimeoutExpired:
+        print("[AUTO-UPDATE] Git update timed out; continuing with local code.")
+
+
+auto_git_pull()
 
 from pyrogram import idle
 from pyrogram.types import BotCommand
