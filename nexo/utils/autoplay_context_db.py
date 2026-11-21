@@ -1264,7 +1264,7 @@ def build_artist_queries(artist: str, lang: str = "") -> List[str]:
         f"{a} old songs", f"{a} purane gane", f"{a} old hit songs",
         f"{a} superhit old songs", f"{a} evergreen songs", f"{a} classic hits",
         f"{a} full video song", f"{a} film songs", f"{a} duet songs",
-        f"{a} romantic songs", f"{a} love songs", f"{a} sad songs", f"{a} dard bhare gane",
+        f"{a} romantic songs", f"{a} love songs",
         f"{a} dance songs", f"{a} masti songs", f"{a} shaadi songs",
     ]
     qs += [f"{a} {y} song" for y in _YEARS]          # saal-wise: har daur ke gaane
