@@ -42,6 +42,7 @@ from nexo.utils.autoplay_context_db import (
     detect_mood,
     STRICT_LANGS as _STRICT_LANGS,
     ARTIST_LANG as _ARTIST_LANG,
+    add_recent as _add_recent,
     recent_artists as _recent_artists,
     _resolve_artist,
 )
@@ -1321,6 +1322,24 @@ class YouTubeAPI:
                     if len(self._autoplay_channels) > 500:
                         self._autoplay_channels.clear()
                     self._autoplay_channels[chosen["vidid"]] = ch_pick
+                if language_rotation:
+                    picked_artist = next(
+                        (v.get("_artist") for v in valid if v["vidid"] == chosen["vidid"]),
+                        "",
+                    )
+                    if picked_artist:
+                        try:
+                            await _add_recent(
+                                int(ctx.get("chat_id")),
+                                chosen["vidid"],
+                                chosen.get("title") or "",
+                                picked_artist,
+                            )
+                            recent_singers.add(picked_artist)
+                        except Exception as err:
+                            logger.warning(
+                                "Regional artist rotation history save failed: %s", err
+                            )
                 logger.info("Autoplay pick (%s, new-first): %s", kind, chosen["title"])
                 return chosen, kind
         return None, kind
