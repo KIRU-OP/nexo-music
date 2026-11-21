@@ -1178,28 +1178,49 @@ class YouTubeAPI:
         # language catalogue instead of locking autoplay to the seed singer.
         language_rotation = bool(kind == "artist" and ctx_lang in _STRICT_LANGS)
         recent_singers = set()
+        active_regional_artist = (core or "").lower().strip()
+        rotate_to_another_artist = False
         if language_rotation:
             try:
-                recent_singers = set(await _recent_artists(ctx.get("chat_id"), 4))
+                chat_id = int(ctx.get("chat_id"))
+                # Save the manually requested seed so the first autoplay round
+                # can give that singer one additional track before rotating.
+                await _add_recent(chat_id, current_videoid, ctx.get("title") or "", active_regional_artist)
+                recent_history = await _recent_artists(chat_id, 10)
+                recent_singers = set(recent_history)
+                if recent_history:
+                    active_regional_artist = recent_history[-1]
+                consecutive = 0
+                for played_artist in reversed(recent_history):
+                    if played_artist != active_regional_artist:
+                        break
+                    consecutive += 1
+                # Two tracks per singer (seed + one autoplay track), then rotate.
+                rotate_to_another_artist = consecutive >= 2
             except Exception:
-                recent_singers = set()
-            if core:
-                recent_singers.add(core.lower())
+                recent_history = []
+                recent_singers = {active_regional_artist} if active_regional_artist else set()
+                rotate_to_another_artist = True
 
         # NAYE gaane pehle: "new / latest" queries sabse pehle, har query mein sabse naya upload
         if language_rotation:
-            # Regional artist autoplay: current singer ke catalogue se bahar niklo.
-            # Known singers ko individually search karo, aur recently played singers
-            # ko pehle round mein skip karo taaki Pawan Singh par autoplay lock na rahe.
-            regional_artists = [
-                a for a in (_ARTIST_LANG.get(ctx_lang) or [])
-                if a and a.lower() not in recent_singers
-            ]
-            random.shuffle(regional_artists)
-            artist_queries = [
-                f"{artist} {ctx_lang} songs"
-                for artist in regional_artists
-            ]
+            if rotate_to_another_artist:
+                regional_artists = [
+                    a for a in (_ARTIST_LANG.get(ctx_lang) or [])
+                    if a and a.lower() not in recent_singers
+                ]
+                random.shuffle(regional_artists)
+                artist_queries = [
+                    f"{artist} {ctx_lang} songs"
+                    for artist in regional_artists
+                ]
+                blocked_singer = active_regional_artist
+                preferred_singers = set(recent_singers)
+            else:
+                # Current singer gets one extra track before switching to another.
+                artist_queries = [f"{active_regional_artist} {ctx_lang} songs"]
+                blocked_singer = ""
+                preferred_singers = set(recent_singers) - {active_regional_artist}
             queries = artist_queries + [
                 f"{ctx_lang} trending songs",
                 f"top {ctx_lang} singers songs",
@@ -1287,9 +1308,9 @@ class YouTubeAPI:
                     # Explicitly reject the seed singer in regional rotation.
                     # This also covers candidates where recent-history extraction
                     # missed the current artist.
-                    if singer and singer == core.lower().strip():
+                    if blocked_singer and singer and singer == blocked_singer:
                         continue
-                    if _artist_hit(core, title or "", ch_name or ""):
+                    if blocked_singer and _artist_hit(blocked_singer, title or "", ch_name or ""):
                         continue
                     formatted["_artist"] = singer
                 formatted["_tier"] = (
@@ -1312,7 +1333,7 @@ class YouTubeAPI:
             if language_rotation and valid:
                 # Prefer singers not heard in the recent rotation. If search results
                 # contain no fresh singer, fall back to any valid language-matched song.
-                diverse = [v for v in valid if v.get("_artist") and v["_artist"] not in recent_singers]
+                diverse = [v for v in valid if v.get("_artist") and v["_artist"] not in preferred_singers]
                 if diverse:
                     valid = diverse
             chosen = _pick_newest(valid, self._autoplay_channels.get(str(current_videoid or "")))
