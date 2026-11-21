@@ -1174,9 +1174,11 @@ class YouTubeAPI:
         # Language lock (topic mode: "bhojpuri songs") + mood ("sad songs" / artist ke saath likha mood)
         ctx_lang = ctx.get("lang") if _LANG_LOCK else None
         ctx_mood = ctx.get("mood") if _LANG_LOCK else None
-        # Keep artist autoplay locked to the requested singer. Do not rotate
-        # across a regional-language catalogue (including Bhojpuri). 
-        language_rotation = False
+        # Bhojpuri artist autoplay stays locked to the requested singer.
+        # Keep the existing rotation behavior for other strict regional languages.
+        language_rotation = bool(
+            kind == "artist" and ctx_lang in _STRICT_LANGS and ctx_lang != "bhojpuri"
+        )
         recent_singers = set()
         active_regional_artist = (core or "").lower().strip()
         rotate_to_another_artist = False
