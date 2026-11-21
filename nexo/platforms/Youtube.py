@@ -41,6 +41,7 @@ from nexo.utils.autoplay_context_db import (
     matches_topic,
     detect_mood,
     STRICT_LANGS as _STRICT_LANGS,
+    ARTIST_LANG as _ARTIST_LANG,
     recent_artists as _recent_artists,
     _resolve_artist,
 )
@@ -1186,7 +1187,19 @@ class YouTubeAPI:
 
         # NAYE gaane pehle: "new / latest" queries sabse pehle, har query mein sabse naya upload
         if language_rotation:
-            queries = [
+            # Regional artist autoplay: current singer ke catalogue se bahar niklo.
+            # Known singers ko individually search karo, aur recently played singers
+            # ko pehle round mein skip karo taaki Pawan Singh par autoplay lock na rahe.
+            regional_artists = [
+                a for a in (_ARTIST_LANG.get(ctx_lang) or [])
+                if a and a.lower() not in recent_singers
+            ]
+            random.shuffle(regional_artists)
+            artist_queries = [
+                f"{artist} {ctx_lang} songs"
+                for artist in regional_artists
+            ]
+            queries = artist_queries + [
                 f"{ctx_lang} trending songs",
                 f"top {ctx_lang} singers songs",
                 f"{ctx_lang} superhit songs",
@@ -1269,7 +1282,15 @@ class YouTubeAPI:
                 formatted["_ch"] = ch_name
                 if language_rotation:
                     singer = _resolve_artist(title or "", ch_name or "", text) or ""
-                    formatted["_artist"] = singer.lower()
+                    singer = singer.lower().strip()
+                    # Explicitly reject the seed singer in regional rotation.
+                    # This also covers candidates where recent-history extraction
+                    # missed the current artist.
+                    if singer and singer == core.lower().strip():
+                        continue
+                    if _artist_hit(core, title or "", ch_name or ""):
+                        continue
+                    formatted["_artist"] = singer
                 formatted["_tier"] = (
                     0 if (ctx_lang and lm == 1) else 1,
                     0 if (ctx_mood and mood_hit(ctx_mood, title, ch_name)) else 1,
