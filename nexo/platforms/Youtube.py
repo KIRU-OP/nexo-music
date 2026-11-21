@@ -40,6 +40,9 @@ from nexo.utils.autoplay_context_db import (
     matches_core,
     matches_topic,
     detect_mood,
+    STRICT_LANGS as _STRICT_LANGS,
+    recent_artists as _recent_artists,
+    _resolve_artist,
 )
 try:   # remix filter + artist resolve + spelling-proof same-song (autoplay_context_db)
     from nexo.utils.autoplay_context_db import (
@@ -1167,11 +1170,33 @@ class YouTubeAPI:
                 return None, "song"
 
         # Language lock (topic mode: "bhojpuri songs") + mood ("sad songs" / artist ke saath likha mood)
-        ctx_lang = ctx.get("lang") if (_LANG_LOCK and kind != "artist") else None
+        ctx_lang = ctx.get("lang") if _LANG_LOCK else None
         ctx_mood = ctx.get("mood") if _LANG_LOCK else None
+        # Strict regional-language seed (e.g. Bhojpuri): rotate across the whole
+        # language catalogue instead of locking autoplay to the seed singer.
+        language_rotation = bool(kind == "artist" and ctx_lang in _STRICT_LANGS)
+        recent_singers = set()
+        if language_rotation:
+            try:
+                recent_singers = set(await _recent_artists(ctx.get("chat_id"), 4))
+            except Exception:
+                recent_singers = set()
+            if core:
+                recent_singers.add(core.lower())
 
         # NAYE gaane pehle: "new / latest" queries sabse pehle, har query mein sabse naya upload
-        if kind == "artist":
+        if language_rotation:
+            queries = [
+                f"{ctx_lang} trending songs",
+                f"top {ctx_lang} singers songs",
+                f"{ctx_lang} superhit songs",
+                f"{ctx_lang} popular songs",
+                f"{ctx_lang} old hit songs",
+                f"{ctx_lang} evergreen songs",
+                f"{ctx_lang} new songs",
+                f"{ctx_lang} jukebox",
+            ]
+        elif kind == "artist":
             queries = [
                 # YouTube search relevance se artist ke popular/trending catalogue ko pehle
                 # explore karo; uske baad latest aur evergreen/old hits bhi include karo.
@@ -1214,10 +1239,10 @@ class YouTubeAPI:
                 if is_remix(title or "", ch_name or ""):
                     continue  # remix / DJ / lofi nahi
 
-                if kind == "artist":
+                if kind == "artist" and not language_rotation:
                     if not matches_core(core, title, ch_name, aliases):
-                        continue  # doosre artist ka gaana, skip
-                elif not matches_topic(ctx, title, ch_name):
+                        continue  # artist-only mode: doosre artist ka gaana, skip
+                elif kind != "artist" and not matches_topic(ctx, title, ch_name):
                     continue  # topic se bahar (ya namesake artist), skip
 
                 lm = language_match(ctx_lang, title, ch_name) if ctx_lang else 1
@@ -1242,6 +1267,9 @@ class YouTubeAPI:
                     continue
                 formatted["_age"] = _age_days(r.get("publishedTime"))
                 formatted["_ch"] = ch_name
+                if language_rotation:
+                    singer = _resolve_artist(title or "", ch_name or "", text) or ""
+                    formatted["_artist"] = singer.lower()
                 formatted["_tier"] = (
                     0 if (ctx_lang and lm == 1) else 1,
                     0 if (ctx_mood and mood_hit(ctx_mood, title, ch_name)) else 1,
@@ -1259,6 +1287,12 @@ class YouTubeAPI:
                     unk[i]["_tier"] = (0, unk[i]["_tier"][1])
                     valid.append(unk[i])
 
+            if language_rotation and valid:
+                # Prefer singers not heard in the recent rotation. If search results
+                # contain no fresh singer, fall back to any valid language-matched song.
+                diverse = [v for v in valid if v.get("_artist") and v["_artist"] not in recent_singers]
+                if diverse:
+                    valid = diverse
             chosen = _pick_newest(valid, self._autoplay_channels.get(str(current_videoid or "")))
             if chosen:
                 ch_pick = next((v.get("_ch") for v in valid if v["vidid"] == chosen["vidid"]), None)
