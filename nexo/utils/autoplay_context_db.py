@@ -1257,10 +1257,12 @@ def build_artist_queries(artist: str, lang: str = "") -> List[str]:
         return []
     qs = [
         f"{a} official songs", f"{a} original song", f"{a} new song",
-        f"{a} hit songs", f"{a} superhit songs", f"{a} all songs",
+        f"{a} trending songs", f"{a} popular songs", f"{a} most viewed songs",
+        f"{a} hit songs", f"{a} superhit songs", f"{a} all time hits", f"{a} all songs",
         f"{a} top songs", f"{a} latest song",
-        # purane / chhupe hue gaane
-        f"{a} old songs", f"{a} purane gane", f"{a} old hit songs", f"{a} superhit old songs",
+        # Purane evergreen hits bhi: sirf latest releases tak autoplay limited na rahe.
+        f"{a} old songs", f"{a} purane gane", f"{a} old hit songs",
+        f"{a} superhit old songs", f"{a} evergreen songs", f"{a} classic hits",
         f"{a} full video song", f"{a} film songs", f"{a} duet songs",
         f"{a} romantic songs", f"{a} love songs", f"{a} sad songs", f"{a} dard bhare gane",
         f"{a} dance songs", f"{a} masti songs", f"{a} shaadi songs",
