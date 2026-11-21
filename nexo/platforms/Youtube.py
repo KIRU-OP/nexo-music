@@ -1172,6 +1172,15 @@ class YouTubeAPI:
         # NAYE gaane pehle: "new / latest" queries sabse pehle, har query mein sabse naya upload
         if kind == "artist":
             queries = [
+                # YouTube search relevance se artist ke popular/trending catalogue ko pehle
+                # explore karo; uske baad latest aur evergreen/old hits bhi include karo.
+                f"{core} trending songs",
+                f"{core} popular songs",
+                f"{core} most viewed songs",
+                f"{core} superhit old songs",
+                f"{core} old hit songs",
+                f"{core} evergreen songs",
+                f"{core} all time hits",
                 f"{core} new songs",
                 f"{core} latest song",
                 base_search,
