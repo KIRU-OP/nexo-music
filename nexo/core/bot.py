@@ -5,6 +5,7 @@ import sys
 from pyrogram import Client, errors
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.session.auth import Auth
+from pyrogram.storage.sqlite_storage import PROD, TEST
 
 import config
 from ..logging import LOGGER
@@ -50,12 +51,22 @@ class JARVIS(Client):
                     "The API key is required for new Telegram authorizations."
                 )
 
+            dc_servers = TEST if self.test_mode else PROD
+            server_address = dc_servers[self._login_dc]
+            port = 80 if self.test_mode else 443
+
             await self.storage.api_id(self.api_id)
             await self.storage.dc_id(self._login_dc)
+            await self.storage.server_address(server_address)
+            await self.storage.port(port)
             await self.storage.date(0)
             await self.storage.test_mode(self.test_mode)
             auth_key = await Auth(
-                self, self._login_dc, self.test_mode
+                self,
+                self._login_dc,
+                server_address,
+                port,
+                self.test_mode,
             ).create()
             await self.storage.auth_key(auth_key)
             await self.storage.user_id(None)
