@@ -80,7 +80,7 @@ from nexo.utils.autoplay_context_db import (
     set_context_kind as set_autoplay_context_kind,
     note_played as note_autoplay_seed,
 )
-from nexo.utils.played_db import add_played, clear_played, is_played
+from nexo.utils.played_db import add_played, is_played
 from nexo.utils.voiceplay_policy import should_prompt_after_track
 
 autoend = {}
@@ -214,8 +214,9 @@ async def _record_played(chat_id: int, track: dict) -> None:
 async def _clear_(chat_id: int) -> None:
     _cancel_playback_watchdog(chat_id)
     try:
-        # Session khatam: history aur artist/mood context dono saaf
-        await clear_played(chat_id)
+        # Session khatam: sirf artist/mood context saaf karo.
+        # Played-song history MongoDB mein persistent rehni chahiye, warna
+        # next VC session mein wahi gaana AutoPlay dobara chun sakta hai.
         await clear_autoplay_context(chat_id)
     except Exception as err:
         LOGGER(__name__).warning("autoplay state clear failed | %s", err)
