@@ -34,7 +34,7 @@ LOGGER = logging.getLogger(__name__)
 
 playeddb = mongodb.played_history
 
-MAX_HISTORY = 300
+MAX_HISTORY = 1000  # Per-chat persistent no-repeat window
 DURATION_TOLERANCE = 5  # (purana, ab use nahi)
 DURATION_LOOSE = 12  # seconds: re-upload / intro ka farq
 
