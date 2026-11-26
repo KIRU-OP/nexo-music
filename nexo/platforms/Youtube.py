@@ -279,9 +279,12 @@ async def search_videos_with_retry(query: str, limit: int = 1) -> list:
     raise ValueError(f"Failed to fetch track details: {last_exc}")
 
 
-STREAM_HTTP_PROBE_TIMEOUT = max(2, int_env("YOUTUBE_STREAM_HTTP_PROBE_TIMEOUT", 15))
-STREAM_PREFLIGHT_TIMEOUT = max(3, int_env("YOUTUBE_STREAM_PREFLIGHT_TIMEOUT", 15))
-STREAM_PREFLIGHT_ENABLED = bool_env("YOUTUBE_STREAM_PREFLIGHT", True)
+# Keep the VC start path lightweight: a single short HTTP range probe is
+# enough to reject dead URLs. FFmpeg preflight is optional for operators who
+# prefer extra validation over faster playback startup.
+STREAM_HTTP_PROBE_TIMEOUT = max(2, int_env("YOUTUBE_STREAM_HTTP_PROBE_TIMEOUT", 5))
+STREAM_PREFLIGHT_TIMEOUT = max(3, int_env("YOUTUBE_STREAM_PREFLIGHT_TIMEOUT", 8))
+STREAM_PREFLIGHT_ENABLED = bool_env("YOUTUBE_STREAM_PREFLIGHT", False)
 DOWNLOAD_CACHE_MAX_BYTES = max(0, int_env("DOWNLOAD_CACHE_MAX_MB", 2048)) * 1024 * 1024
 DOWNLOAD_CACHE_MIN_FREE_BYTES = max(0, int_env("DOWNLOAD_CACHE_MIN_FREE_MB", 512)) * 1024 * 1024
 WORKER_FALLBACK_API_ATTEMPTS = min(3, max(1, int_env("WORKER_FALLBACK_API_ATTEMPTS", 3)))
