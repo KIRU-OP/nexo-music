@@ -3,55 +3,73 @@
 </p>
 
 <h1 align="center">
-  <img src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&size=32&pause=1000&color=3DDC97&center=true&vCenter=true&width=600&lines=Welcome+to+Nexo+Music+%F0%9F%8E%B6;Your+Ultimate+Telegram+Music+Bot;Play.+Vibe.+Repeat." alt="Typing SVG" />
+  <img src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&size=35&pause=1000&color=3DDC97&center=true&vCenter=true&width=650&lines=NEXO+MUSIC+%F0%9F%8E%A7;Next+Level+Telegram+Music+Bot;Stream.+Control.+Enjoy." alt="NEXO MUSIC" />
 </h1>
 
+<h3 align="center">
+  Your Music. Your Voice Chat. Your Vibe.
+</h3>
+
 <p align="center">
-  <img src="https://komarev.com/ghpvc/?username=nexo-music&label=Repo%20Views&color=3DDC97&style=for-the-badge" />
+  <img src="https://komarev.com/ghpvc/?username=KIRU-OP&label=PROFILE%20VIEWS&color=3DDC97&style=for-the-badge" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/KIRU-OP/nexo-music/stargazers"><img src="https://img.shields.io/github/stars/KIRU-OP/nexo-music?style=for-the-badge&color=3DDC97&labelColor=1b1c15"/></a>
-  <a href="https://github.com/KIRU-OP/nexo-music/network/members"><img src="https://img.shields.io/github/forks/KIRU-OP/nexo-music?style=for-the-badge&color=3DDC97&labelColor=1b1c15"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3DDC97?style=for-the-badge&labelColor=1b1c15"/></a>
-  <a href="https://t.me/kiru_bots"><img src="https://img.shields.io/badge/support-telegram-3DDC97?style=for-the-badge&logo=telegram&logoColor=white&labelColor=1b1c15"/></a>
+  <a href="https://github.com/KIRU-OP/nexo-music/stargazers">
+    <img src="https://img.shields.io/github/stars/KIRU-OP/nexo-music?style=for-the-badge&color=3DDC97&labelColor=101820"/>
+  </a>
+  <a href="https://github.com/KIRU-OP/nexo-music/network/members">
+    <img src="https://img.shields.io/github/forks/KIRU-OP/nexo-music?style=for-the-badge&color=3DDC97&labelColor=101820"/>
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-3DDC97?style=for-the-badge&labelColor=101820"/>
+  </a>
+  <a href="https://t.me/kiru_bots">
+    <img src="https://img.shields.io/badge/Support-Telegram-3DDC97?style=for-the-badge&logo=telegram&logoColor=white&labelColor=101820"/>
+  </a>
+  <img src="https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white"/>
 </p>
 
 <p align="center">
   <a href="https://t.me/kiru_bots">
-    <img src="https://img.shields.io/badge/💬%20Join%20Support%20Group-3DDC97?style=for-the-badge&labelColor=1b1c15"/>
+    <img src="https://img.shields.io/badge/💬_Join_Support_Group-3DDC97?style=for-the-badge&labelColor=101820"/>
   </a>
   <a href="https://t.me/about_deadly_venom">
-    <img src="https://img.shields.io/badge/📢%20Updates%20Channel-3DDC97?style=for-the-badge&labelColor=1b1c15"/>
+    <img src="https://img.shields.io/badge/📢_Updates_Channel-3DDC97?style=for-the-badge&labelColor=101820"/>
   </a>
 </p>
 
 ---
 
-## 🎧 What is Nexo Music?
+## 🎧 What is NEXO MUSIC?
 
-**Nexo Music** streams crystal-clear, lag-free audio & video straight into your Telegram group's voice chat. Powered by **Pyrogram** + **PyTgCalls**, pulling from **YouTube, Spotify, Apple Music, SoundCloud & Resso** — plus a stack of AI-powered extras thrown in for good measure.
+**NEXO MUSIC** brings music directly into your Telegram group's voice chat. Search for tracks, stream supported audio and video, manage the queue, and control playback without leaving Telegram.
+
+Built around Telegram voice-chat technology, NEXO focuses on a smooth listening experience, dependable assistant handling, and simple controls for group members.
 
 <table align="center">
 <tr>
 <td width="50%" valign="top">
 
-### 🔥 Core Powers
-- 🎶 **HQ Streaming** — zero lag, zero distortion
-- 🌐 **Multi-Platform** — YT, Spotify, Apple Music, SoundCloud, Resso
-- 📃 **Smart Queue** — playlists, skip, loop, shuffle
-- 👮 **Group Management** — mute, ban, kick, promote
-- 👋 **Custom Welcomes** — greet new members in style
+### 🔥 Music Experience
+
+- 🎶 **Voice Chat Streaming** — Play music in group voice chats
+- 🌐 **Multi-Platform Search** — Discover tracks from supported sources
+- 📃 **Smart Queue** — Manage upcoming songs
+- 🔁 **Loop & Shuffle** — Customize playback
+- 🎬 **Video Playback** — Play supported video streams
 
 </td>
 <td width="50%" valign="top">
 
-### ⚡ Extra Firepower
-- 🖼️ **AI Image Generation** via Replicate / HF
-- 🌍 **Instant Translation** across languages
-- 📊 **Live Stats** — CPU, RAM, uptime, users
-- 🔊 **Auto-Leave Assistant** — smart voice-chat cleanup
-- 🐳 **Deploy Anywhere** — Heroku, Docker, VPS, one command
+### ⚡ Extra Features
+
+- 🤖 **Assistant System** — Voice-chat assistant support
+- 🚀 **Playback Optimization** — Faster stream startup
+- 📊 **System Statistics** — Monitor bot performance
+- 🌍 **Translation Tools** — Multilingual support
+- 🎨 **AI Integrations** — Optional image-generation features
+- 🛠️ **Group Utilities** — Helpful management commands
 
 </td>
 </tr>
@@ -59,15 +77,48 @@
 
 ---
 
+## 🎼 Supported Music Platforms
+
+<p align="center">
+  <img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white"/>
+  <img src="https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white"/>
+  <img src="https://img.shields.io/badge/Apple_Music-FA243C?style=for-the-badge&logo=applemusic&logoColor=white"/>
+  <img src="https://img.shields.io/badge/SoundCloud-FF5500?style=for-the-badge&logo=soundcloud&logoColor=white"/>
+</p>
+
+<p align="center">
+  <i>Provider availability depends on the current implementation and configuration.</i>
+</p>
+
+---
+
 ## 🚀 Get It Running
 
 <details>
-<summary><b>☁️ Deploy on Heroku — one click</b></summary>
+<summary><b>🖥️ Deploy on a VPS — Ubuntu / Debian</b></summary>
 <br>
 
-[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/KIRU-OP/nexo-music)
+```bash
+git clone https://github.com/KIRU-OP/nexo-music
+cd nexo-music
 
-Fill in the required env vars on the Heroku form, hit deploy, and watch the build logs — you're live in minutes.
+apt update
+apt install -y git ffmpeg python3-venv python3-full
+
+python3 -m venv venv
+source venv/bin/activate
+
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+
+cp sample.env .env
+```
+
+Fill in the required values in `.env`, then start:
+
+```bash
+bash start
+```
 
 </details>
 
@@ -78,27 +129,11 @@ Fill in the required env vars on the Heroku form, hit deploy, and watch the buil
 ```bash
 git clone https://github.com/KIRU-OP/nexo-music
 cd nexo-music
-cp sample.env .env        # fill in your values
+
+cp sample.env .env
 docker build -t nexo-music .
-docker run -d --env-file .env --name nexo-music nexo-music
+docker run -d --restart unless-stopped --env-file .env --name nexo-music nexo-music
 ```
-
-</details>
-
-<details>
-<summary><b>🖥️ Deploy on a VPS</b></summary>
-<br>
-
-```bash
-git clone https://github.com/KIRU-OP/nexo-music
-cd nexo-music
-python3.12 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp sample.env .env         # fill in your values
-bash start
-```
-
-Needs `git`, `ffmpeg`, and Python 3.12+ on the host.
 
 </details>
 
@@ -106,51 +141,107 @@ Needs `git`, `ffmpeg`, and Python 3.12+ on the host.
 
 ## 🔑 Environment Variables
 
-| Variable | Required | What it's for |
+| Variable | Required | Description |
 |---|:---:|---|
-| `API_ID` / `API_HASH` | ✅ | From [my.telegram.org](https://my.telegram.org) |
-| `BOT_TOKEN` | ✅ | From [@BotFather](https://t.me/BotFather) |
-| `OWNER_ID` | ✅ | Your numeric Telegram user ID |
-| `LOGGER_ID` | ✅ | Log group chat ID (bot must be admin) |
-| `STRING_SESSION` | ✅ | Pyrogram session string for the assistant |
+| `API_ID` / `API_HASH` | ✅ | Telegram API credentials |
+| `BOT_TOKEN` | ✅ | Telegram bot token from [@BotFather](https://t.me/BotFather) |
+| `OWNER_ID` | ✅ | Bot owner's Telegram user ID |
+| `LOGGER_ID` | ✅ | Logging group chat ID |
+| `STRING_SESSION` | ✅ | Assistant account session |
 | `MONGO_DB_URI` | ✅ | MongoDB connection string |
-| `COOKIE_URL` | ✅ | Raw link to a YouTube `cookies.txt` |
-| `QUEUE_LIMIT` | ⬜ | Max queue size (default `10`) |
-| `DEEP_API` / `REPLICATE_API_TOKEN(S)` / `HF_TOKEN(S)` | ⬜ | Power the AI image & vision commands |
-| `SPOTIFY_CLIENT_ID` / `SECRET` | ⬜ | From the [Spotify Dev Dashboard](https://developer.spotify.com/dashboard) |
+| `COOKIE_URL` | ⬜ | YouTube cookies source, if required |
+| `QUEUE_LIMIT` | ⬜ | Maximum queue size |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | ⬜ | Spotify integration credentials |
 
-> 📄 Full list with advanced fallback/proxy options lives in [`sample.env`](sample.env).
+> 📄 Check [`sample.env`](sample.env) for the complete list of configuration options.
 
 ---
 
 ## 🎮 Command Cheat Sheet
 
-| Command | Does what |
+| Command | Function |
 |---|---|
-| `/play` `/vplay` | Blast a song or video into the voice chat |
-| `/skip` `/pause` `/resume` `/end` | Take control of playback |
-| `/queue` | Peek at what's coming up |
-| `/genvid` | Conjure an AI image out of thin air |
-| `/translate` | Break the language barrier |
-| `/ban` `/mute` `/promote` | Keep your group in check |
+| `/play` | Play a song in voice chat |
+| `/vplay` | Play a supported video |
+| `/skip` | Skip the current track |
+| `/pause` | Pause playback |
+| `/resume` | Resume playback |
+| `/end` | Stop playback |
+| `/queue` | View upcoming tracks |
+| `/help` | View available commands |
 
-Type `/help` inside the bot for the full, always-current list.
-
----
-
-## 📜 Privacy & License
-
-🔐 [**Privacy Policy**](https://claude.ai/artifact/2XFLzM4uUNi1jLrwK1hvVF) — what data flows through the bot, and why.
-⚖️ Released under the **[MIT License](LICENSE)** — fork it, break it, ship it.
+<p align="center">
+  <i>Available commands may vary according to enabled modules and bot configuration.</i>
+</p>
 
 ---
 
-<div align="center">
+## ⚙️ Technology Stack
 
-### 🤝 Need a hand?
+<p align="center">
+  <img src="https://skillicons.dev/icons?i=python,mongodb,docker,git,linux" />
+</p>
 
-**[💬 Support Group](https://t.me/kiru_bots)** · **[📢 Channel](https://t.me/about_deadly_venom)** · **[👤 Developer @ll_deadly_venom_ll](https://t.me/ll_deadly_venom_ll)**
+<p align="center">
+  <img src="https://img.shields.io/badge/Telegram-Voice%20Chat-229ED9?style=flat-square&logo=telegram&logoColor=white"/>
+  <img src="https://img.shields.io/badge/MongoDB-Database-47A248?style=flat-square&logo=mongodb&logoColor=white"/>
+  <img src="https://img.shields.io/badge/Docker-Deployment-2496ED?style=flat-square&logo=docker&logoColor=white"/>
+</p>
 
-<sub>Built with ♪ for Telegram communities that never want the music to stop.</sub>
+---
 
-</div>
+## ⚡ Performance & Development
+
+NEXO MUSIC is continuously improved with a focus on:
+
+- Faster voice-chat playback startup.
+- More efficient stream validation.
+- Reliable assistant connection handling.
+- Playback stability and bug fixes.
+- New features and maintenance updates.
+
+---
+
+## 🛡️ Privacy & Security
+
+Keep your `.env` file, bot token, assistant session, and database credentials private. Never publish secrets in issues, screenshots, or public commits.
+
+Review the repository configuration before deploying your own instance.
+
+---
+
+## 🤝 Need a Hand?
+
+<p align="center">
+  <a href="https://t.me/kiru_bots">
+    <img src="https://img.shields.io/badge/💬_Support_Group-229ED9?style=for-the-badge&logo=telegram&logoColor=white"/>
+  </a>
+  <a href="https://t.me/about_deadly_venom">
+    <img src="https://img.shields.io/badge/📢_Updates_Channel-229ED9?style=for-the-badge&logo=telegram&logoColor=white"/>
+  </a>
+  <a href="https://t.me/ll_deadly_venom_ll">
+    <img src="https://img.shields.io/badge/👤_Developer-229ED9?style=for-the-badge&logo=telegram&logoColor=white"/>
+  </a>
+</p>
+
+<p align="center">
+  Found a bug or have a feature idea? Reach out through our community.
+</p>
+
+---
+
+## 📜 License
+
+Released under the **MIT License**. See the [`LICENSE`](LICENSE) file for details.
+
+<p align="center">
+  <img src="https://user-images.githubusercontent.com/73097560/115834477-dbab4500-a447-11eb-908a-139a6edaec5c.gif" width="100%" />
+</p>
+
+<h2 align="center">🎧 NEXO MUSIC</h2>
+
+<p align="center">
+  <b>Play. Vibe. Repeat.</b>
+  <br/><br/>
+  <sub>Built with ❤️ for Telegram communities.</sub>
+</p>
