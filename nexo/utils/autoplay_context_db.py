@@ -981,6 +981,15 @@ def _prune(items: List[dict]) -> List[dict]:
 
 async def _load_recent(chat_id: int) -> List[dict]:
     if chat_id in _RECENT:
+        cached = _prune(_RECENT[chat_id])
+        if len(cached) != len(_RECENT[chat_id]):
+            _RECENT[chat_id] = cached
+            try:
+                await playeddb.update_one(
+                    {"chat_id": chat_id}, {"$set": {"items": cached}}
+                )
+            except Exception as err:
+                LOGGER.warning("prune cached played history failed: %s", err)
         return _RECENT[chat_id]
     items: List[dict] = []
     try:
