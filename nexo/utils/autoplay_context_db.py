@@ -210,9 +210,8 @@ SPAM_CHANNEL = ["lyrics", "lofi", "slowed", "reverb", "cover", "karaoke", "remix
 _EPISODE_RE = re.compile(r"(?:ep(?:isode)?\s*\d+|s\d+e\d+|season\s+\d+)", re.IGNORECASE)
 
 MIN_SEC, MAX_SEC = 2 * 60, 10 * 60      # 2 se 10 minute
-MAX_RECENT = 60                          # last itne gaane yaad
-KEEP_ALWAYS = 30                         # itne kabhi expire nahi
-EXPIRE_SEC = 6 * 3600                    # baaki 6 ghante baad expire
+MAX_RECENT = 60                          # Maximum recent entries retained
+EXPIRE_SEC = 60 * 60                    # Har played song 1 ghante baad refresh/expire
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -972,11 +971,12 @@ def _keys_match(a: List[str], b: List[str]) -> bool:
 
 def _prune(items: List[dict]) -> List[dict]:
     now = time.time()
-    if len(items) > KEEP_ALWAYS:
-        items = [
-            i for i in items[:-KEEP_ALWAYS] if now - i.get("ts", 0) < EXPIRE_SEC
-        ] + items[-KEEP_ALWAYS:]          # order: purana -> naya (items[-1] hamesha latest)
-    return items[-MAX_RECENT:]
+    # Every entry expires after one hour; no permanent last-30-song exception.
+    fresh = [
+        i for i in items
+        if isinstance(i, dict) and now - float(i.get("ts", 0) or 0) < EXPIRE_SEC
+    ]
+    return fresh[-MAX_RECENT:]
 
 
 async def _load_recent(chat_id: int) -> List[dict]:
@@ -988,7 +988,13 @@ async def _load_recent(chat_id: int) -> List[dict]:
         items = (doc or {}).get("items", [])
     except Exception as err:
         LOGGER.warning("load played failed: %s", err)
-    _RECENT[chat_id] = items
+    _RECENT[chat_id] = items = _prune(items)
+    try:
+        await playeddb.update_one(
+            {"chat_id": chat_id}, {"$set": {"items": items}}, upsert=True
+        )
+    except Exception as err:
+        LOGGER.warning("prune played history failed: %s", err)
     return items
 
 
