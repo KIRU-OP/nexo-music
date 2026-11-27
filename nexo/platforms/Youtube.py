@@ -2169,20 +2169,33 @@ class YouTubeAPI:
 
             xbit_audio_url = None
             if YT_API_KEY and YTPROXY:
-                session = None
-                try:
-                    session = create_session()
-                    get_audio = session.get(f"{YTPROXY}/info/{vid_id}", headers=headers, timeout=60)
-                    song_data = get_audio.json()
-                    status = song_data.get('status')
+                def fetch_xbit_audio_sync():
+                    # Keep blocking requests off the asyncio event loop. A slow
+                    # fallback API must not freeze VC playback or other chats.
+                    session = requests.Session()
+                    session.mount("http://", HTTPAdapter(max_retries=0))
+                    session.mount("https://", HTTPAdapter(max_retries=0))
+                    try:
+                        response = session.get(
+                            f"{YTPROXY}/info/{vid_id}",
+                            headers=headers,
+                            timeout=(5, 12),
+                        )
+                        response.raise_for_status()
+                        return response.json()
+                    finally:
+                        session.close()
 
-                    if status == 'success':
-                        xbit_audio_url = song_data.get('audio_url')
-                    elif status == 'error':
+                try:
+                    song_data = await loop.run_in_executor(None, fetch_xbit_audio_sync)
+                    status = song_data.get("status") if isinstance(song_data, dict) else None
+                    if status == "success":
+                        xbit_audio_url = song_data.get("audio_url")
+                    elif status == "error":
                         log_primary_api_issue(
                             "audio",
                             vid_id,
-                            song_data.get('message', 'Unknown error from API.'),
+                            song_data.get("message", "Unknown error from API."),
                         )
                     else:
                         log_primary_api_issue(
@@ -2196,9 +2209,6 @@ class YouTubeAPI:
                     log_primary_api_issue("audio", vid_id, f"invalid response: {str(e)}")
                 except Exception as e:
                     log_primary_api_issue("audio", vid_id, str(e))
-                finally:
-                    if session:
-                        session.close()
             else:
                 logger.info("xBit fallback not configured for audio.")
 
