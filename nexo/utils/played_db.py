@@ -18,6 +18,7 @@ Document  : {"chat_id": int, "items": [{"v": videoid, "t": title, "d": seconds}]
 
 import logging
 import re
+import time
 from difflib import SequenceMatcher
 from typing import List, Optional
 
@@ -34,7 +35,8 @@ LOGGER = logging.getLogger(__name__)
 
 playeddb = mongodb.played_history
 
-MAX_HISTORY = 1000  # Per-chat persistent no-repeat window
+MAX_HISTORY = 1000  # Upper bound for the one-hour no-repeat window
+HISTORY_TTL_SECONDS = 60 * 60  # Played songs become eligible again after one hour
 DURATION_TOLERANCE = 5  # (purana, ab use nahi)
 DURATION_LOOSE = 12  # seconds: re-upload / intro ka farq
 
@@ -161,7 +163,19 @@ async def _load(chat_id: int) -> list:
     if chat_id in _CACHE:
         return _CACHE[chat_id]
     doc = await playeddb.find_one({"chat_id": chat_id}) or {}
-    _CACHE[chat_id] = list(doc.get("items", []))
+    now = time.time()
+    # Legacy entries without a timestamp are treated as expired during migration.
+    items = [
+        item for item in doc.get("items", [])
+        if isinstance(item, dict)
+        and now - float(item.get("at", 0) or 0) < HISTORY_TTL_SECONDS
+    ]
+    _CACHE[chat_id] = items[-MAX_HISTORY:]
+    if len(_CACHE[chat_id]) != len(doc.get("items", [])):
+        await playeddb.update_one(
+            {"chat_id": chat_id},
+            {"$set": {"items": _CACHE[chat_id]}},
+        )
     return _CACHE[chat_id]
 
 
@@ -177,7 +191,12 @@ async def add_played(
     chat_id = int(chat_id)
     items = await _load(chat_id)
 
-    item = {"v": str(videoid or ""), "t": title or "", "d": to_seconds(duration)}
+    item = {
+        "v": str(videoid or ""),
+        "t": title or "",
+        "d": to_seconds(duration),
+        "at": time.time(),
+    }
     if any(_same_song(item, old, ignore) for old in items):
         return  # pehle se hai
 
@@ -187,10 +206,7 @@ async def add_played(
 
     await playeddb.update_one(
         {"chat_id": chat_id},
-        {
-            "$set": {"chat_id": chat_id},
-            "$push": {"items": {"$each": [item], "$slice": -MAX_HISTORY}},
-        },
+        {"$set": {"chat_id": chat_id, "items": items}},
         upsert=True,
     )
 
