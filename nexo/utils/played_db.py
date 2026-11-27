@@ -161,6 +161,16 @@ def _same_song(a: dict, b: dict, ignore: str = "") -> bool:
 async def _load(chat_id: int) -> list:
     chat_id = int(chat_id)
     if chat_id in _CACHE:
+        now = time.time()
+        cached = [
+            item for item in _CACHE[chat_id]
+            if now - float(item.get("at", 0) or 0) < HISTORY_TTL_SECONDS
+        ]
+        if len(cached) != len(_CACHE[chat_id]):
+            _CACHE[chat_id] = cached
+            await playeddb.update_one(
+                {"chat_id": chat_id}, {"$set": {"items": cached}}
+            )
         return _CACHE[chat_id]
     doc = await playeddb.find_one({"chat_id": chat_id}) or {}
     now = time.time()
