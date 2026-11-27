@@ -1266,7 +1266,14 @@ class YouTubeAPI:
 
         # Artist mode: YouTube Music ke artist albums se playlist tracks pehle lo.
         # Har autoplay cycle mein sirf ek eligible track return hota hai.
-        if kind == "artist" and core:
+        if (
+            kind == "artist"
+            and core
+            and not (
+                ctx.get("lang") in _STRICT_LANGS
+                and ctx.get("lang") != "bhojpuri"
+            )
+        ):
             try:
                 catalog = await _get_ytmusic_artist_catalog(core)
                 if catalog:
