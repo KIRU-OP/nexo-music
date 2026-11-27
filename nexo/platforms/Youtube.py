@@ -226,6 +226,96 @@ def _ytdlp_lookup_sync(query: str, limit: int) -> list:
 
 # Set when youtubesearchpython is incompatible with installed httpx (>=0.28).
 # Once set, VideosSearch is skipped and yt-dlp is used directly.
+
+# Public YouTube Music artist catalogue cache (artist -> normalized video results).
+_YTMUSIC_ARTIST_CACHE = {}
+_YTMUSIC_CACHE_TTL = 1800
+
+def _ytmusic_artist_catalog_sync(artist_name: str, limit_albums: int = 8) -> list:
+    """Fetch an artist's public YouTube Music album tracks as YouTube video results."""
+    try:
+        from ytmusicapi import YTMusic
+        api = YTMusic()
+        matches = api.search(artist_name, filter="artists", limit=6) or []
+        wanted = re.sub(r"\\s+", " ", artist_name or "").strip().casefold()
+        artist = next(
+            (item for item in matches
+             if item.get("browseId") and
+             re.sub(r"\\s+", " ", item.get("artist", "")).strip().casefold() == wanted),
+            None,
+        )
+        if not artist:
+            artist = next((item for item in matches if item.get("browseId")), None)
+        if not artist:
+            return []
+        details = api.get_artist(artist["browseId"]) or {}
+        albums = ((details.get("albums") or {}).get("results") or [])[:limit_albums]
+        output, seen = [], set()
+        for album in albums:
+            browse_id = album.get("browseId")
+            if not browse_id:
+                continue
+            try:
+                album_data = api.get_album(browse_id) or {}
+            except Exception as exc:
+                logger.warning("YouTube Music album fetch failed | artist=%s | album=%s | %s",
+                               artist_name, album.get("title"), exc)
+                continue
+            for track in album_data.get("tracks") or []:
+                video_id = track.get("videoId")
+                title = track.get("title")
+                credited = [a.get("name", "") for a in (track.get("artists") or [])]
+                if not video_id or not title or video_id in seen:
+                    continue
+                # Strict artist lock: do not admit unrelated tracks from a compilation.
+                if credited and not any(
+                    wanted == re.sub(r"\\s+", " ", name).strip().casefold()
+                    for name in credited if name
+                ):
+                    continue
+                duration = track.get("duration_seconds")
+                if not duration:
+                    raw = str(track.get("duration") or "")
+                    parts = raw.split(":")
+                    try:
+                        duration = sum(int(part) * (60 ** idx)
+                                       for idx, part in enumerate(reversed(parts)))
+                    except (TypeError, ValueError):
+                        duration = 0
+                thumbs = track.get("thumbnails") or album_data.get("thumbnails") or []
+                thumb = (thumbs[-1].get("url") if thumbs else
+                         f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg")
+                seen.add(video_id)
+                output.append({
+                    "id": video_id,
+                    "title": title,
+                    "duration": _format_duration(duration),
+                    "link": f"https://www.youtube.com/watch?v={video_id}",
+                    "thumbnails": [{"url": thumb}],
+                    "channel": {"name": ", ".join(credited) or artist_name},
+                    "artists": credited,
+                    "album": album.get("title") or album_data.get("title") or "",
+                })
+        return output
+    except Exception as exc:
+        logger.warning("YouTube Music artist catalogue failed | artist=%s | %s", artist_name, exc)
+        return []
+
+async def _get_ytmusic_artist_catalog(artist_name: str) -> list:
+    now = time.time()
+    cached = _YTMUSIC_ARTIST_CACHE.get((artist_name or "").casefold())
+    if cached and now - cached[0] < _YTMUSIC_CACHE_TTL:
+        return list(cached[1])
+    loop = asyncio.get_running_loop()
+    results = await loop.run_in_executor(None, _ytmusic_artist_catalog_sync, artist_name)
+    if results:
+        _YTMUSIC_ARTIST_CACHE[(artist_name or "").casefold()] = (now, results)
+        if len(_YTMUSIC_ARTIST_CACHE) > 100:
+            oldest = min(_YTMUSIC_ARTIST_CACHE, key=lambda key: _YTMUSIC_ARTIST_CACHE[key][0])
+            _YTMUSIC_ARTIST_CACHE.pop(oldest, None)
+    return results
+
+
 _VIDEOSSEARCH_BROKEN = False
 
 
@@ -1174,6 +1264,20 @@ class YouTubeAPI:
             else:
                 return None, "song"
 
+        # Artist mode: YouTube Music ke artist albums se playlist tracks pehle lo.
+        # Har autoplay cycle mein sirf ek eligible track return hota hai.
+        if kind == "artist" and core:
+            try:
+                catalog = await _get_ytmusic_artist_catalog(core)
+                if catalog:
+                    first = catalog + first
+                    logger.info(
+                        "YouTube Music artist catalogue loaded | artist=%s | tracks=%s",
+                        core, len(catalog)
+                    )
+            except Exception as err:
+                logger.warning("YouTube Music artist catalogue lookup failed | %s", err)
+
         # Language lock (topic mode: "bhojpuri songs") + mood ("sad songs" / artist ke saath likha mood)
         ctx_lang = ctx.get("lang") if _LANG_LOCK else None
         ctx_mood = ctx.get("mood") if _LANG_LOCK else None
@@ -1238,8 +1342,8 @@ class YouTubeAPI:
             ]
         elif kind == "artist":
             queries = [
-                # YouTube search relevance se artist ke popular/trending catalogue ko pehle
-                # explore karo; uske baad latest aur evergreen/old hits bhi include karo.
+                # YouTube Music album tracks are in 'first' and are evaluated before search fallbacks.
+                base_search,
                 f"{core} trending songs",
                 f"{core} popular songs",
                 f"{core} most viewed songs",
