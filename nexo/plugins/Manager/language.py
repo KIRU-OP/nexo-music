@@ -1,7 +1,7 @@
 import asyncio
-from pyrogram import filters
-from pyrogram.errors import FloodWait
-from pyrogram.types import (
+from kirugram import filters
+from kirugram.errors import FloodWait
+from kirugram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
