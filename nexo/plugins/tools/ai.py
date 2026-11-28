@@ -3,9 +3,9 @@ import os
 from io import BytesIO
 
 from PIL import Image
-from pyrogram import Client, filters
-from pyrogram.enums import ChatAction
-from pyrogram.types import Message
+from kirugram import Client, filters
+from kirugram.enums import ChatAction
+from kirugram.types import Message
 
 from nexo import app
 from nexo.utils.free_ai import (
