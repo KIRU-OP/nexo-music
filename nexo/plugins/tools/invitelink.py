@@ -1,7 +1,7 @@
 import os
-from pyrogram import Client, filters
-from pyrogram.types import Message
-from pyrogram.errors import FloodWait, ChannelInvalid, ChannelPrivate
+from kirugram import Client, filters
+from kirugram.types import Message
+from kirugram.errors import FloodWait, ChannelInvalid, ChannelPrivate
 from nexo import app
 from nexo.misc import SUDOERS
 
