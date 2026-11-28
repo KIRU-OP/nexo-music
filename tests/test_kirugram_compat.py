@@ -1,32 +1,32 @@
 from pathlib import Path
 
 
-def test_kirugram_imports_and_required_api():
-    import kirugram
-    from kirugram import Client, filters
-    from kirugram.raw.types import InputGroupCallSlug
+def test_kurigram_imports_and_required_api():
+    import pyrogram
+    from pyrogram import Client, filters
+    from pyrogram.raw.types import InputGroupCallSlug
 
-    assert kirugram.__version__ == "2.2.27"
-    assert Client is kirugram.Client
-    assert filters is kirugram.filters
+    assert pyrogram.__version__ == "2.2.27"
+    assert Client is pyrogram.Client
+    assert filters is pyrogram.filters
     assert InputGroupCallSlug is not None
 
 
-def test_start_script_installs_kirugram_distribution():
+def test_start_script_pins_kurigram_distribution():
     start_script = (Path(__file__).resolve().parents[1] / "start").read_text()
-    assert "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@main" in start_script
+    assert '"kurigram==2.2.27"' in start_script
     assert "--force-reinstall --no-cache-dir" in start_script
-    assert "Kirugram/PyTgCalls compatibility OK" in start_script
-    assert "kurigram" not in start_script.lower()
-    assert "from kirugram.raw.types import InputGroupCallSlug" in start_script
+    assert "Kurigram/PyTgCalls compatibility OK" in start_script
+    assert "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@main" not in start_script
+    assert "from pyrogram.raw.types import InputGroupCallSlug" in start_script
 
 
-def test_pytgcalls_compatibility_is_owned_by_kirugram():
-    import kirugram
+def test_pytgcalls_accepts_kurigram_client():
+    import pyrogram
     from pytgcalls import PyTgCalls
     from pytgcalls.mtproto.bridged_client import BridgedClient
 
-    client = kirugram.Client("kirugram-pytgcalls-test", 12345, "0" * 32)
+    client = pyrogram.Client("kurigram-pytgcalls-test", 12345, "0" * 32)
     calls = PyTgCalls(client)
 
     assert calls is not None
