@@ -1,8 +1,8 @@
 import asyncio
 import random
-from pyrogram import filters
-from pyrogram.enums import ChatType
-from pyrogram.errors import FloodWait
+from kirugram import filters
+from kirugram.enums import ChatType
+from kirugram.errors import FloodWait
 from nexo import app
 from nexo.utils.admin_check import is_admin
 from nexo.plugins.misc.funtag_messages import (
