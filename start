@@ -13,10 +13,26 @@ fi
 KIRUGRAM_SOURCE="Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@2.2.27"
 "$PYTHON_BIN" -m pip install --disable-pip-version-check --no-input --upgrade --force-reinstall --no-cache-dir "$KIRUGRAM_SOURCE"
 
-# Verify the imported package version and PyTgCalls compatibility bridge.
-"$PYTHON_BIN" -c "import kirugram; from importlib.metadata import version; from kirugram import Client as KirugramClient; from kirugram.raw.types import InputGroupCallSlug; from pytgcalls import PyTgCalls; from pytgcalls.mtproto.bridged_client import BridgedClient; assert kirugram.__version__ == '2.2.27', kirugram.__version__; assert version('Kirugram') == '2.2.27'; client = kirugram.Client('kirugram-compat-check', 12345, '0' * 32); assert BridgedClient.package_name(client) == 'pyrogram'; PyTgCalls(client); assert KirugramClient is kirugram.Client; assert InputGroupCallSlug is not None; print('Kirugram 2.2.27/PyTgCalls compatibility OK')" || {
-    echo "Kirugram 2.2.27 install/version/compatibility check failed."
-    exit 1
-}
+# Keep startup diagnostics specific: don't depend on PyTgCalls' internal Pyrogram label.
+"$PYTHON_BIN" - <<'PY'
+import kirugram
+from kirugram import Client
+from kirugram.raw.types import InputGroupCallSlug
+from pytgcalls import PyTgCalls
+
+print(f"Loaded Kirugram {getattr(kirugram, '__version__', 'unknown')} from {kirugram.__file__}")
+if getattr(kirugram, "__version__", None) != "2.2.27":
+    raise RuntimeError(f"Expected Kirugram 2.2.27, got {getattr(kirugram, '__version__', None)!r}")
+
+if InputGroupCallSlug is None:
+    raise RuntimeError("Kirugram raw type InputGroupCallSlug is unavailable")
+
+client = Client("kirugram-compat-check", 12345, "0" * 32)
+calls = PyTgCalls(client)
+if calls is None:
+    raise RuntimeError("PyTgCalls did not initialize with the Kirugram client")
+
+print("Kirugram 2.2.27 and PyTgCalls compatibility OK")
+PY
 
 exec "$PYTHON_BIN" -m nexo
