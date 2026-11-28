@@ -1,7 +1,7 @@
 import asyncio
-from pyrogram import filters, enums
-from pyrogram.errors import PeerIdInvalid, RPCError, FloodWait
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from kirugram import filters, enums
+from kirugram.errors import PeerIdInvalid, RPCError, FloodWait
+from kirugram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from nexo import app
 
