@@ -10,7 +10,7 @@ if [ -z "$PYTHON_BIN" ]; then
 fi
 
 # Install the pinned KIRU-OP Kirugram release used by NEXO.
-"$PYTHON_BIN" -m pip install --disable-pip-version-check --no-input --upgrade "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@v2.2.27"
+"$PYTHON_BIN" -m pip install --disable-pip-version-check --no-input --upgrade "git+https://github.com/KIRU-OP/Kirugram.git@v2.2.27"
 
 # Fail early with a clear message if the required Telegram raw type is unavailable.
 "$PYTHON_BIN" -c "from kirugram.raw.types import InputGroupCallSlug" || {
