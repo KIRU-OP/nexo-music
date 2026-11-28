@@ -1,7 +1,7 @@
-from pyrogram import filters
-from pyrogram.enums import ChatType
-from pyrogram.errors import MessageNotModified
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from kirugram import filters
+from kirugram.enums import ChatType
+from kirugram.errors import MessageNotModified
+from kirugram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from nexo import app
 from nexo.utils.database import (
