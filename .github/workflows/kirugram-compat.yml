@@ -24,7 +24,7 @@ jobs:
       - name: Install Kirugram and test runner
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "git+https://github.com/KIRU-OP/Kirugram.git@v2.2.27" pytest
+          python -m pip install "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@main" pytest
       - name: Compile NEXO Python files
         run: python -m compileall -q config.py nexo kirugram_compat.py
       - name: Test legacy import compatibility
