@@ -1,6 +1,6 @@
 import asyncio
 
-from pyrogram import Client
+from kirugram import Client
 
 import config
 
