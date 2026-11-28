@@ -3,9 +3,9 @@ import re
 from html import escape
 from io import BytesIO
 
-from pyrogram import filters
-from pyrogram.enums import ChatMemberStatus, ChatMembersFilter, ChatType
-from pyrogram.errors import FloodWait
+from kirugram import filters
+from kirugram.enums import ChatMemberStatus, ChatMembersFilter, ChatType
+from kirugram.errors import FloodWait
 
 from nexo import app
 from nexo.misc import SUDOERS, mongodb
