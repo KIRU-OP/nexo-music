@@ -1,4 +1,4 @@
-from pyrogram import filters
+from kirugram import filters
 
 from nexo import app
 from nexo.misc import SUDOERS
