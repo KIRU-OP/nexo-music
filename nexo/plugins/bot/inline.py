@@ -1,4 +1,4 @@
-from pyrogram.types import (
+from kirugram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultPhoto,
