@@ -1,31 +1,6 @@
-"""Bridge legacy Kirugram import paths to the Kirugram distribution.
-
-NEXO plugins still contain older kirugram.* imports. This module loads
-Kirugram first and maps already-loaded package modules to those compatibility
-names so the application uses the KIRU-OP-maintained implementation.
-"""
-
-import importlib
-import sys
+"""Runtime sanity checks for the Kirugram client used by NEXO."""
 
 import kirugram
 
-# Load the subpackages used directly by NEXO before installing aliases.
-for _name in (
-    "kirugram.enums",
-    "kirugram.errors",
-    "kirugram.filters",
-    "kirugram.handlers",
-    "kirugram.raw",
-    "kirugram.session.auth",
-    "kirugram.storage.sqlite_storage",
-    "kirugram.types",
-):
-    importlib.import_module(_name)
-
-# The root package and loaded submodules share the same module objects.
-sys.modules["kirugram"] = kirugram
-for _module_name, _module in tuple(sys.modules.items()):
-    if _module_name.startswith("kirugram."):
-        _legacy_name = "kirugram" + _module_name[len("kirugram"): ]
-        sys.modules.setdefault(_legacy_name, _module)
+if not hasattr(kirugram, "Client") or not hasattr(kirugram, "filters"):
+    raise ImportError("Installed Kirugram package is missing required Client/filters API")
