@@ -6,8 +6,8 @@ import traceback
 import inspect
 from typing import Tuple
 
-from pyrogram import raw, filters
-from pyrogram.errors import (
+from kirugram import raw, filters
+from kirugram.errors import (
     StickersetInvalid,
     StickersTooMuch,
     StickerEmojiInvalid,
@@ -16,7 +16,7 @@ from pyrogram.errors import (
     FileReferenceExpired,
     RPCError,
 )
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from kirugram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from nexo import app
 from nexo.utils.files import resize_file_to_sticker_size
@@ -28,7 +28,7 @@ BOT = BOT_USERNAME.lstrip("@").lower()
 
 def _cs_kwargs(is_anim: bool, is_vid: bool) -> dict:
     """
-    Return only the `animated`/`videos` flags supported by this Pyrogram build.
+    Return only the `animated`/`videos` flags supported by this Kirugram build.
     """
     params = inspect.signature(raw.functions.stickers.CreateStickerSet).parameters
     kw = {}
