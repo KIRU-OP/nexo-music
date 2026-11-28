@@ -1,10 +1,10 @@
 import datetime as dt
 from typing import Tuple, Optional
 
-from pyrogram import Client
-from pyrogram.enums import ChatMemberStatus, ChatMembersFilter
-from pyrogram.types import Message, User
-from pyrogram.errors import RPCError
+from kirugram import Client
+from kirugram.enums import ChatMemberStatus, ChatMembersFilter
+from kirugram.types import Message, User
+from kirugram.errors import RPCError
 
 from nexo.misc import SUDOERS
 from nexo.logging import LOGGER
