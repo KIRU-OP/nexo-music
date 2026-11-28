@@ -1,5 +1,5 @@
-from pyrogram import filters, enums
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from kirugram import filters, enums
+from kirugram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import asyncio
 import random
 import requests
