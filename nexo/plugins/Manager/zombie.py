@@ -2,10 +2,10 @@ import asyncio
 import html
 from typing import List
 
-from pyrogram import Client, enums, filters
-from pyrogram.enums import ChatMemberStatus, ChatType
-from pyrogram.errors import FloodWait, ChannelInvalid, ChatAdminRequired, RPCError
-from pyrogram.types import (
+from kirugram import Client, enums, filters
+from kirugram.enums import ChatMemberStatus, ChatType
+from kirugram.errors import FloodWait, ChannelInvalid, ChatAdminRequired, RPCError
+from kirugram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,

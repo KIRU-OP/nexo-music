@@ -1,4 +1,4 @@
-from pyrogram.enums import ParseMode
+from kirugram.enums import ParseMode
 from html import escape
 
 from nexo import app

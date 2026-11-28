@@ -1,9 +1,9 @@
 import asyncio
 import time
 
-from pyrogram import filters
-from pyrogram.enums import ChatMembersFilter
-from pyrogram.types import CallbackQuery, Message
+from kirugram import filters
+from kirugram.enums import ChatMembersFilter
+from kirugram.types import CallbackQuery, Message
 
 from nexo import app
 from nexo.core.call import JARVIS

@@ -1,5 +1,5 @@
-from pyrogram import filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from kirugram import filters
+from kirugram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from nexo import app
 
 import asyncio

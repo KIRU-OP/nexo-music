@@ -6,9 +6,9 @@ import secrets
 import time
 from dataclasses import dataclass
 
-from pyrogram import filters
-from pyrogram.enums import ChatAction, ParseMode
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from kirugram import filters
+from kirugram.enums import ChatAction, ParseMode
+from kirugram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from unidecode import unidecode
 
 try:

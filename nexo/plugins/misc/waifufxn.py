@@ -1,9 +1,9 @@
 import asyncio
 
 import requests
-from pyrogram import Client, filters
-from pyrogram.enums import ParseMode
-from pyrogram.types import Message
+from kirugram import Client, filters
+from kirugram.enums import ParseMode
+from kirugram.types import Message
 
 from nexo import app
 

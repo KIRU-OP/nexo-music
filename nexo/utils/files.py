@@ -1,8 +1,8 @@
 import os
 import asyncio
 from PIL import Image
-from pyrogram import raw
-from pyrogram.file_id import FileId
+from kirugram import raw
+from kirugram.file_id import FileId
 
 STICKER_DIMENSIONS = (512, 512)
 

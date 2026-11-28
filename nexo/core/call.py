@@ -5,26 +5,26 @@ from datetime import datetime, timedelta
 from typing import Union
 
 from ntgcalls import TelegramServerError
-from pyrogram import Client
-from pyrogram.enums import ChatType
-from pyrogram.errors import ChatAdminRequired, ChatWriteForbidden, Forbidden
-import pyrogram.errors as pyrogram_errors
+from kirugram import Client
+from kirugram.enums import ChatType
+from kirugram.errors import ChatAdminRequired, ChatWriteForbidden, Forbidden
+import kirugram.errors as kirugram_errors
 
 # Compatibility for PyTgCalls versions using legacy Pyrogram error-class names.
-# Kurigram uses the newer GroupCall* capitalization.
-if not hasattr(pyrogram_errors, "GroupcallForbidden"):
-    pyrogram_errors.GroupcallForbidden = getattr(
-        pyrogram_errors, "GroupCallForbidden", pyrogram_errors.Forbidden
+# Kirugram uses the newer GroupCall* capitalization.
+if not hasattr(kirugram_errors, "GroupcallForbidden"):
+    kirugram_errors.GroupcallForbidden = getattr(
+        kirugram_errors, "GroupCallForbidden", kirugram_errors.Forbidden
     )
-if not hasattr(pyrogram_errors, "GroupcallInvalid"):
-    pyrogram_errors.GroupcallInvalid = getattr(
-        pyrogram_errors, "GroupCallInvalid", pyrogram_errors.BadRequest
+if not hasattr(kirugram_errors, "GroupcallInvalid"):
+    kirugram_errors.GroupcallInvalid = getattr(
+        kirugram_errors, "GroupCallInvalid", kirugram_errors.BadRequest
     )
-from pyrogram.handlers import RawUpdateHandler
-from pyrogram.raw.functions.channels import GetFullChannel
-from pyrogram.raw.functions.messages import GetFullChat
-from pyrogram.raw.types import PeerUser, UpdateGroupCallParticipants
-from pyrogram.types import InlineKeyboardMarkup
+from kirugram.handlers import RawUpdateHandler
+from kirugram.raw.functions.channels import GetFullChannel
+from kirugram.raw.functions.messages import GetFullChat
+from kirugram.raw.types import PeerUser, UpdateGroupCallParticipants
+from kirugram.types import InlineKeyboardMarkup
 from pytgcalls import PyTgCalls
 from pytgcalls.exceptions import NoActiveGroupCall
 from pytgcalls.types import (

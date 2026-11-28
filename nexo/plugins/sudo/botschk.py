@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from pyrogram import filters
+from kirugram import filters
 from nexo import app
 from nexo.core.userbot import Userbot
 from config import OWNER_ID

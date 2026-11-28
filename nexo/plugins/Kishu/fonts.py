@@ -1,5 +1,5 @@
-from pyrogram import filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from kirugram import filters
+from kirugram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from nexo import app
 from nexo.utils.font_styles import Fonts

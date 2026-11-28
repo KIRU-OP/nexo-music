@@ -1,5 +1,5 @@
-from pyrogram import filters
-from pyrogram.types import Message
+from kirugram import filters
+from kirugram.types import Message
 
 from nexo import YouTube, app
 from nexo.core.call import JARVIS

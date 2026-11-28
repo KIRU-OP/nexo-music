@@ -2,8 +2,8 @@ import time
 from datetime import datetime
 from asyncio import sleep
 
-from pyrogram import filters, enums
-from pyrogram.types import Message
+from kirugram import filters, enums
+from kirugram.types import Message
 
 from nexo import app
 

@@ -1,8 +1,8 @@
 import asyncio
-from pyrogram import Client, filters
-from pyrogram.enums import ChatType
-from pyrogram.errors import MessageDeleteForbidden, RPCError, FloodWait
-from pyrogram.types import Message
+from kirugram import Client, filters
+from kirugram.enums import ChatType
+from kirugram.errors import MessageDeleteForbidden, RPCError, FloodWait
+from kirugram.types import Message
 
 from nexo import app
 from nexo.utils.admin_filters import admin_filter

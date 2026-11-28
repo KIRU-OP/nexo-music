@@ -41,8 +41,8 @@ def auto_git_pull():
 
 auto_git_pull()
 
-from pyrogram import idle
-from pyrogram.types import BotCommand
+from kirugram import idle
+from kirugram.types import BotCommand
 from pytgcalls.exceptions import NoActiveGroupCall
 
 import config
@@ -102,7 +102,7 @@ async def init():
         and not config.STRING5
     ):
         LOGGER(__name__).error(
-            "Assistant session not filled, please fill a Pyrogram session."
+            "Assistant session not filled, please configure a Kirugram session string."
         )
         exit()
 

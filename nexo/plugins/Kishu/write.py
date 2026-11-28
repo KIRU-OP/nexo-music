@@ -1,5 +1,5 @@
-from pyrogram import Client, filters, enums
-from pyrogram.types import Message
+from kirugram import Client, filters, enums
+from kirugram.types import Message
 from datetime import datetime
 import asyncio
 from config import BOT_USERNAME

@@ -1,12 +1,12 @@
 from datetime import datetime
-from pyrogram import filters
-from pyrogram.types import (
+from kirugram import filters
+from kirugram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
 )
-from pyrogram.enums import ParseMode
+from kirugram.enums import ParseMode
 from config import OWNER_ID
 from nexo import app
 

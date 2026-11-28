@@ -4,10 +4,10 @@ from io import BytesIO
 from sys import version as pyver
 
 import psutil
-from pyrogram import __version__ as pyrover
-from pyrogram import filters
-from pyrogram.errors import MessageIdInvalid
-from pyrogram.types import InputMediaVideo, Message
+from kirugram import __version__ as pyrover
+from kirugram import filters
+from kirugram.errors import MessageIdInvalid
+from kirugram.types import InputMediaVideo, Message
 from pytgcalls.__version__ import __version__ as pytgver
 
 import config

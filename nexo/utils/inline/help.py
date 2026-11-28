@@ -1,4 +1,4 @@
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from kirugram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from nexo import app
 from nexo.button_styles import danger_button, primary_button

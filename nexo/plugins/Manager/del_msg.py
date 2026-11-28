@@ -11,13 +11,13 @@ Delete all group messages using an assistant account, with owner-only confirmati
 
 import asyncio
 
-from pyrogram import filters
-from pyrogram.types import (
+from kirugram import filters
+from kirugram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
     CallbackQuery, Message, ChatInviteLink, ChatAdministratorRights
 )
-from pyrogram.enums import ChatMemberStatus
-from pyrogram.errors import (
+from kirugram.enums import ChatMemberStatus
+from kirugram.errors import (
     UserNotParticipant, ChatAdminRequired, FloodWait,
     PeerIdInvalid, ChannelPrivate, MessageNotModified, MessageIdInvalid
 )

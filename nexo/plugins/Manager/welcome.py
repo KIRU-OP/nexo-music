@@ -1,8 +1,8 @@
 import os
 from PIL import Image, ImageDraw, ImageFont
-from pyrogram import enums, filters
-from pyrogram.types import Message, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import TopicClosed
+from kirugram import enums, filters
+from kirugram.types import Message, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
+from kirugram.errors import TopicClosed
 from nexo import app
 from nexo.mongo.welcomedb import is_on, set_state, bump, cool
 

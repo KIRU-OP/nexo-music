@@ -2,8 +2,8 @@ import mimetypes
 import os
 from io import BytesIO
 
-from pyrogram import filters
-from pyrogram.types import Message
+from kirugram import filters
+from kirugram.types import Message
 
 from nexo import app
 from nexo.utils.free_ai import (

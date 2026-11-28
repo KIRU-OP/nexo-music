@@ -1,9 +1,9 @@
 import asyncio
 import random
 import time
-from pyrogram import filters
-from pyrogram.enums import ChatType
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from kirugram import filters
+from kirugram.enums import ChatType
+from kirugram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from youtubesearchpython.__future__ import VideosSearch
 
 import config

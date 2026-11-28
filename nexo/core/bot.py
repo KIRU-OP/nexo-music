@@ -2,10 +2,10 @@ import asyncio
 import os
 import sys
 
-from pyrogram import Client, errors
-from pyrogram.enums import ChatMemberStatus
-from pyrogram.session.auth import Auth
-from pyrogram.storage.sqlite_storage import PROD, TEST
+from kirugram import Client, errors
+from kirugram.enums import ChatMemberStatus
+from kirugram.session.auth import Auth
+from kirugram.storage.sqlite_storage import PROD, TEST
 
 import config
 from ..logging import LOGGER

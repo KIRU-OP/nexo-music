@@ -1,8 +1,8 @@
 import re
 from typing import Union
 
-from pyrogram import Client, filters, types
-from pyrogram.types import InlineKeyboardMarkup, Message
+from kirugram import Client, filters, types
+from kirugram.types import InlineKeyboardMarkup, Message
 
 from nexo import app
 from nexo.utils.database import get_lang

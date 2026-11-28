@@ -1,6 +1,6 @@
 import random
-from pyrogram import Client, filters, enums
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from kirugram import Client, filters, enums
+from kirugram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from nexo import app
 from config import BOT_USERNAME
 

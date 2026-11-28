@@ -1,7 +1,7 @@
 import re
-from pyrogram import Client, filters
-from pyrogram.types import Message
-from pyrogram.enums import ParseMode
+from kirugram import Client, filters
+from kirugram.types import Message
+from kirugram.enums import ParseMode
 from pymongo import MongoClient
 
 from nexo import app

@@ -1,14 +1,14 @@
 import asyncio
 
-from pyrogram.enums import ChatMemberStatus
-from pyrogram.errors import (
+from kirugram.enums import ChatMemberStatus
+from kirugram.errors import (
     ChatAdminRequired,
     InviteHashExpired,
     InviteRequestSent,
     UserAlreadyParticipant,
     UserNotParticipant,
 )
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from kirugram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import PLAYLIST_IMG_URL, SUPPORT_CHAT, adminlist
 from strings import get_string

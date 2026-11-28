@@ -1,9 +1,9 @@
 import logging
 import time
 
-from pyrogram import filters
-from pyrogram.enums import ChatMemberStatus
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from kirugram import filters
+from kirugram.enums import ChatMemberStatus
+from kirugram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import BANNED_USERS
 from nexo.button_styles import danger_button, primary_button, success_button

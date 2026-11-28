@@ -5,7 +5,7 @@ from datetime import datetime
 from functools import wraps
 
 import aiofiles
-from pyrogram.errors.exceptions.forbidden_403 import ChatWriteForbidden
+from kirugram.errors.exceptions.forbidden_403 import ChatWriteForbidden
 
 from config import DEBUG_IGNORE_LOG, LOGGER_ID
 from nexo import app

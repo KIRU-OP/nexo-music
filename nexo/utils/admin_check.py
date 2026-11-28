@@ -1,5 +1,5 @@
-from pyrogram.types import CallbackQuery
-from pyrogram.enums import ChatType, ChatMemberStatus
+from kirugram.types import CallbackQuery
+from kirugram.enums import ChatType, ChatMemberStatus
 
 async def is_admin(message_or_cq) -> bool:
     if isinstance(message_or_cq, CallbackQuery):

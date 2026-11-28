@@ -1,5 +1,5 @@
-from pyrogram import filters
-from pyrogram.types import Message
+from kirugram import filters
+from kirugram.types import Message
 
 from nexo import app
 from nexo.utils import extract_user, int_to_alpha

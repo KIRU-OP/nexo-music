@@ -1,8 +1,8 @@
 import asyncio
-from pyrogram import filters
-from pyrogram.enums import ChatMemberStatus
-from pyrogram.types import ChatJoinRequest
-from pyrogram.errors import (
+from kirugram import filters
+from kirugram.enums import ChatMemberStatus
+from kirugram.types import ChatJoinRequest
+from kirugram.errors import (
     ChatAdminRequired,
     UserAlreadyParticipant,
     UserNotParticipant,

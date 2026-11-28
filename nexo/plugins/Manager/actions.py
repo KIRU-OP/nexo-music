@@ -22,9 +22,9 @@ import asyncio
 import datetime as dt
 from typing import Optional
 
-from pyrogram import filters, enums
-from pyrogram.errors import ChatAdminRequired, UserAdminInvalid, UserNotParticipant, RPCError
-from pyrogram.types import Message, ChatPermissions
+from kirugram import filters, enums
+from kirugram.errors import ChatAdminRequired, UserAdminInvalid, UserNotParticipant, RPCError
+from kirugram.types import Message, ChatPermissions
 
 from nexo import app
 from nexo.utils.decorator import admin_required

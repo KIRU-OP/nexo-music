@@ -8,9 +8,9 @@ from pathlib import Path
 
 import httpx
 import yt_dlp
-from pyrogram import filters
-from pyrogram.enums import ChatAction
-from pyrogram.types import (
+from kirugram import filters
+from kirugram.enums import ChatAction
+from kirugram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InputMediaAudio,

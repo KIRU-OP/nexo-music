@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 
-from pyrogram.enums import ChatType
+from kirugram.enums import ChatType
 
 import config
 from nexo import app

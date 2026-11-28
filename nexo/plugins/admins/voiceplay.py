@@ -1,5 +1,5 @@
-from pyrogram import filters
-from pyrogram.types import (
+from kirugram import filters
+from kirugram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,

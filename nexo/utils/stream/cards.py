@@ -1,7 +1,7 @@
 import asyncio
 
-from pyrogram.errors import FloodWait
-from pyrogram.types import InlineKeyboardMarkup
+from kirugram.errors import FloodWait
+from kirugram.types import InlineKeyboardMarkup
 
 from nexo import app
 from nexo.misc import db

@@ -5,9 +5,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from PIL import Image, ImageDraw, UnidentifiedImageError
-from pyrogram import filters
-from pyrogram.enums import ChatType, ParseMode
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from kirugram import filters
+from kirugram.enums import ChatType, ParseMode
+from kirugram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import SUPPORT_CHANNEL
 from nexo import app

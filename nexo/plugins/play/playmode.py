@@ -1,5 +1,5 @@
-from pyrogram import filters
-from pyrogram.types import InlineKeyboardMarkup, Message
+from kirugram import filters
+from kirugram.types import InlineKeyboardMarkup, Message
 
 from nexo import app
 from nexo.utils.database import get_playmode, get_playtype, is_nonadmin_chat

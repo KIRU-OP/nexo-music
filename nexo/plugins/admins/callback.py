@@ -1,8 +1,8 @@
 import asyncio
 import random
 
-from pyrogram import filters
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from kirugram import filters
+from kirugram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import (
     BANNED_USERS,

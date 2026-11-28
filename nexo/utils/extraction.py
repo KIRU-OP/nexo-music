@@ -1,5 +1,5 @@
-from pyrogram.enums import MessageEntityType
-from pyrogram.types import Message, User
+from kirugram.enums import MessageEntityType
+from kirugram.types import Message, User
 
 from nexo import app
 

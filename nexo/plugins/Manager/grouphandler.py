@@ -1,6 +1,6 @@
-from pyrogram import filters
-from pyrogram.enums import ChatType
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from kirugram import filters
+from kirugram.enums import ChatType
+from kirugram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from nexo import app
 from nexo.utils.admin_filters import admin_filter
 
