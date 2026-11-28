@@ -18,7 +18,7 @@ fi
     exit 1
 }
 
-# Verify that this exact installed Kirugram client is accepted by PyTgCalls.
+# Verify that the installed Kurigram client is accepted by PyTgCalls.
 "$PYTHON_BIN" -c "import pyrogram; from pytgcalls import PyTgCalls; from pytgcalls.mtproto.bridged_client import BridgedClient; client = pyrogram.Client('kurigram-compat-check', 12345, '0' * 32); assert BridgedClient.package_name(client) == 'pyrogram', BridgedClient.package_name(client); PyTgCalls(client); print('Kurigram/PyTgCalls compatibility OK')" || {
     echo "Kurigram/PyTgCalls compatibility check failed. Verify that this virtual environment has the kurigram==2.2.27 and py-tgcalls==2.3.3."
     exit 1
