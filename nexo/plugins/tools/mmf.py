@@ -1,8 +1,8 @@
 import os
 import textwrap
 from PIL import Image, ImageDraw, ImageFont
-from pyrogram import filters
-from pyrogram.types import Message
+from kirugram import filters
+from kirugram.types import Message
 from nexo import app
 
 @app.on_message(filters.command("mmf"))
