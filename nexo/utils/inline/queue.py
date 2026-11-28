@@ -1,5 +1,5 @@
 from typing import Union
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from kirugram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from nexo.button_styles import danger_button, primary_button, success_button
 
