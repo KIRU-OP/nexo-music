@@ -25,9 +25,15 @@ def test_start_script_installs_kirugram():
 
 def test_pytgcalls_accepts_kirugram_client():
     import kirugram
+    from kirugram_pytgcalls_compat import install_pytgcalls_compat
+
+    install_pytgcalls_compat()
+
     from pytgcalls import PyTgCalls
+    from pytgcalls.mtproto.bridged_client import BridgedClient
 
     client = kirugram.Client("kirugram-pytgcalls-test", 12345, "0" * 32)
     calls = PyTgCalls(client)
 
     assert calls is not None
+    assert BridgedClient.package_name(client) == "pyrogram"
