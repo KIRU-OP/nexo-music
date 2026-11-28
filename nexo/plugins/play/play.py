@@ -3,9 +3,9 @@ import random
 import string
 from os import getenv
 
-from pyrogram import filters
-from pyrogram.errors import FloodWait, RandomIdDuplicate, MessageIdInvalid
-from pyrogram.types import InlineKeyboardMarkup, InputMediaPhoto, Message
+from kirugram import filters
+from kirugram.errors import FloodWait, RandomIdDuplicate, MessageIdInvalid
+from kirugram.types import InlineKeyboardMarkup, InputMediaPhoto, Message
 from pytgcalls.exceptions import NoActiveGroupCall
 
 import config
