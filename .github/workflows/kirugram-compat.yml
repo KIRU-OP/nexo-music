@@ -25,6 +25,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@main" pytest
+      - name: Scan for remaining legacy Pyrogram imports
+        shell: bash
+        run: |
+          if grep -RInE '(^|[[:space:]])(from|import)[[:space:]]+pyrogram([.]|[[:space:]]|$)' --include='*.py' .; then
+            echo 'Legacy Pyrogram imports remain; replace them with Kirugram imports.'
+            exit 1
+          else
+            echo 'No legacy Pyrogram imports found.'
+          fi
       - name: Compile NEXO Python files
         run: python -m compileall -q config.py nexo kirugram_compat.py
       - name: Test legacy import compatibility
