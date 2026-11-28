@@ -14,6 +14,12 @@ from kirugram.raw.functions.messages import GetFullChat
 from kirugram.raw.types import PeerUser, UpdateGroupCallParticipants
 from kirugram.types import InlineKeyboardMarkup
 
+# Kirugram is Pyrogram-compatible but uses its own top-level package name.
+# Install the adapter bridge before constructing any PyTgCalls instance.
+from kirugram_pytgcalls_compat import install_pytgcalls_compat
+
+install_pytgcalls_compat()
+
 from pytgcalls import PyTgCalls
 from pytgcalls.exceptions import NoActiveGroupCall
 from pytgcalls.types import (
