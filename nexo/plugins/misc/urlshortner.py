@@ -2,11 +2,11 @@ from urllib.parse import urljoin
 
 import httpx
 import pyshorteners
-from pyrogram import Client, filters
-from pyrogram.enums import ChatAction, ParseMode
-from pyrogram.types import InlineKeyboardButton as ikb
-from pyrogram.types import InlineKeyboardMarkup as ikm
-from pyrogram.types import Message
+from kirugram import Client, filters
+from kirugram.enums import ChatAction, ParseMode
+from kirugram.types import InlineKeyboardButton as ikb
+from kirugram.types import InlineKeyboardMarkup as ikm
+from kirugram.types import Message
 
 from nexo import app
 from nexo.security import SecurityError, validate_public_http_url
