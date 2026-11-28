@@ -1,9 +1,9 @@
 from functools import wraps
 from typing import Callable, Awaitable, Any
 
-from pyrogram import Client
-from pyrogram.enums import ChatMemberStatus, ChatType
-from pyrogram.types import Message
+from kirugram import Client
+from kirugram.enums import ChatMemberStatus, ChatType
+from kirugram.types import Message
 
 from config import BOT_USERNAME
 from nexo.misc import SUDOERS, COMMANDERS
