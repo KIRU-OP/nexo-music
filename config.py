@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 
 # Load Kirugram before legacy Pyrogram-compatible imports are used.
 import kirugram_compat  # noqa: F401
+
+# Load Kirugram before legacy Pyrogram-compatible imports are used.
+import kirugram_compat  # noqa: F401
 from kirugram import filters
 
 # Load environment variables from .env file
