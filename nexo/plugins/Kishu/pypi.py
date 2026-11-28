@@ -1,5 +1,5 @@
-from pyrogram import filters
-from pyrogram.enums import ParseMode
+from kirugram import filters
+from kirugram.enums import ParseMode
 import asyncio
 import requests
 from nexo import app
