@@ -1,4 +1,4 @@
-from pyrogram import filters
+from kirugram import filters
 import random
 from nexo import app
 
