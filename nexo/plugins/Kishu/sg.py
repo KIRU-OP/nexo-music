@@ -1,9 +1,9 @@
 import asyncio
 import random
 
-from pyrogram import Client, filters
-from pyrogram.types import Message
-from pyrogram.raw.functions.messages import DeleteHistory
+from kirugram import Client, filters
+from kirugram.types import Message
+from kirugram.raw.functions.messages import DeleteHistory
 
 from nexo import userbot as us, app
 from nexo.core.userbot import assistants
