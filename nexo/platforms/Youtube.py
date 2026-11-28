@@ -11,8 +11,8 @@ from typing import Union
 import string
 import requests
 import yt_dlp
-from pyrogram.enums import MessageEntityType
-from pyrogram.types import Message
+from kirugram.enums import MessageEntityType
+from kirugram.types import Message
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 try:  # SkyBotsDeveloper fork ships the async API as `future`
