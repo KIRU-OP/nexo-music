@@ -1,0 +1,31 @@
+name: Kirugram Migration Checks
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "kirugram_compat.py"
+      - "nexo/**"
+      - "config.py"
+      - "requirements.txt"
+      - "tests/**"
+      - ".github/workflows/kirugram-compat.yml"
+  push:
+    branches: [migration/kirugram]
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Kirugram and test runner
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "git+https://github.com/KIRU-OP/Kirugram.git@main" pytest
+      - name: Compile NEXO Python files
+        run: python -m compileall -q config.py nexo kirugram_compat.py
+      - name: Test legacy import compatibility
+        run: python -m pytest -q tests/test_kirugram_compat.py
