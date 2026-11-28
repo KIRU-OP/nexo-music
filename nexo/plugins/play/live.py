@@ -1,6 +1,6 @@
 import random
 
-from pyrogram import filters
+from kirugram import filters
 
 from nexo import YouTube, app
 from nexo.utils.channelplay import get_channeplayCB
