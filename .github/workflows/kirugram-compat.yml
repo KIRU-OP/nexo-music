@@ -4,14 +4,13 @@ on:
   pull_request:
     branches: [master]
     paths:
-      - "kirugram_compat.py"
       - "nexo/**"
       - "config.py"
       - "requirements.txt"
       - "tests/**"
       - ".github/workflows/kirugram-compat.yml"
   push:
-    branches: [migration/kirugram]
+    branches: [master, migration/kirugram]
 
 jobs:
   compatibility:
@@ -20,11 +19,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Install Kirugram and test runner
+          python-version: "3.10"
+      - name: Install Kirugram, PyTgCalls and test runner
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@main" pytest
+          python -m pip install "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@main" "ntgcalls==2.2.5" "py-tgcalls==2.3.3" pytest
       - name: Scan for remaining legacy Pyrogram imports
         shell: bash
         run: |
@@ -35,6 +34,6 @@ jobs:
             echo 'No legacy Pyrogram imports found.'
           fi
       - name: Compile NEXO Python files
-        run: python -m compileall -q config.py nexo kirugram_compat.py
-      - name: Test legacy import compatibility
+        run: python -m compileall -q config.py nexo tests
+      - name: Test Kirugram imports and PyTgCalls bridge
         run: python -m pytest -q tests/test_kirugram_compat.py
