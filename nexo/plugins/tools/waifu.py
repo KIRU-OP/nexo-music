@@ -1,7 +1,7 @@
 import asyncio
 import requests
-from pyrogram import filters
-from pyrogram.types import Message
+from kirugram import filters
+from kirugram.types import Message
 from nexo import app
 
 NEKOS_BEST_API_BASE = "https://nekos.best/api/v2"
