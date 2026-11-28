@@ -1,4 +1,4 @@
-from pyrogram import filters
+from kirugram import filters
 import asyncio
 import requests
 from nexo import app
