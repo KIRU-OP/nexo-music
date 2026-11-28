@@ -1,5 +1,5 @@
-from pyrogram import filters
-from pyrogram.types import InlineKeyboardMarkup, Message
+from kirugram import filters
+from kirugram.types import InlineKeyboardMarkup, Message
 
 import config
 from nexo import YouTube, app
