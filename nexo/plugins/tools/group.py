@@ -1,14 +1,14 @@
 import asyncio
 
-from pyrogram import filters
-from pyrogram.enums import ChatType
-from pyrogram.errors import (
+from kirugram import filters
+from kirugram.enums import ChatType
+from kirugram.errors import (
     ChannelPrivate,
     ChatSendPlainForbidden,
     ChatWriteForbidden,
     Forbidden,
 )
-from pyrogram.types import Message
+from kirugram.types import Message
 
 from config import OWNER_ID
 from nexo import app
