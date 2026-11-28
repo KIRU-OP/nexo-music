@@ -1,6 +1,6 @@
-from pyrogram import filters
-from pyrogram.enums import ChatMemberStatus
-from pyrogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from kirugram import filters
+from kirugram.enums import ChatMemberStatus
+from kirugram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from nexo import app
 from nexo.utils.database import get_autoplay, get_cmode, set_autoplay
