@@ -12,7 +12,7 @@ gtts
 heroku3
 httpx<0.28
 indic-transliteration
-git+https://github.com/KIRU-OP/Kirugram.git@v2.2.27
+Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@main
 motor
 nekosbest
 numpy
