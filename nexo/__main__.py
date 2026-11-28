@@ -102,7 +102,7 @@ async def init():
         and not config.STRING5
     ):
         LOGGER(__name__).error(
-            "Assistant session not filled, please fill a Pyrogram session."
+            "Assistant session not filled, please configure a Kirugram session string."
         )
         exit()
 
