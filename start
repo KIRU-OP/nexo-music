@@ -9,10 +9,10 @@ if [ -z "$PYTHON_BIN" ]; then
     exit 1
 fi
 
-# Install both pinned Telegram client distributions.
+# Install the pinned Kirugram 2.2.27 distribution.
 "$PYTHON_BIN" -m pip install --disable-pip-version-check --no-input --upgrade --force-reinstall --no-cache-dir "Kirugram==2.2.27"
 
-# Verify Kirugram imports and the Pyrogram client expected by PyTgCalls.
+# Verify Kirugram imports and its PyTgCalls compatibility bridge.
 "$PYTHON_BIN" -c "import kirugram; from kirugram import Client as KirugramClient; from kirugram.raw.types import InputGroupCallSlug; from pytgcalls import PyTgCalls; from pytgcalls.mtproto.bridged_client import BridgedClient; client = kirugram.Client('kirugram-compat-check', 12345, '0' * 32); assert BridgedClient.package_name(client) == 'pyrogram'; PyTgCalls(client); assert KirugramClient is kirugram.Client; assert InputGroupCallSlug is not None; print('Kirugram 2.2.27/PyTgCalls compatibility OK')" || {
     echo "Kirugram compatibility check failed. Verify Kirugram==2.2.27 and py-tgcalls==2.3.3."
     exit 1
