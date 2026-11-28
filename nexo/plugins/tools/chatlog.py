@@ -1,8 +1,8 @@
 import asyncio
 import random
 import urllib.parse
-from pyrogram import filters, errors, types
-from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from kirugram import filters, errors, types
+from kirugram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from typing import Optional
 
 from config import LOGGER_ID
