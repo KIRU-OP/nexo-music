@@ -4,7 +4,7 @@ from datetime import datetime
 
 import requests
 import whois
-from pyrogram import filters
+from kirugram import filters
 
 from nexo import app
 
