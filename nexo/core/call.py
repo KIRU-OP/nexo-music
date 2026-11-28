@@ -5,14 +5,14 @@ from datetime import datetime, timedelta
 from typing import Union
 
 from ntgcalls import TelegramServerError
-from pyrogram import Client
-from pyrogram.enums import ChatType
-from pyrogram.errors import ChatAdminRequired, ChatWriteForbidden, Forbidden
-from pyrogram.handlers import RawUpdateHandler
-from pyrogram.raw.functions.channels import GetFullChannel
-from pyrogram.raw.functions.messages import GetFullChat
-from pyrogram.raw.types import PeerUser, UpdateGroupCallParticipants
-from pyrogram.types import InlineKeyboardMarkup
+from kirugram import Client
+from kirugram.enums import ChatType
+from kirugram.errors import ChatAdminRequired, ChatWriteForbidden, Forbidden
+from kirugram.handlers import RawUpdateHandler
+from kirugram.raw.functions.channels import GetFullChannel
+from kirugram.raw.functions.messages import GetFullChat
+from kirugram.raw.types import PeerUser, UpdateGroupCallParticipants
+from kirugram.types import InlineKeyboardMarkup
 
 from pytgcalls import PyTgCalls
 from pytgcalls.exceptions import NoActiveGroupCall
