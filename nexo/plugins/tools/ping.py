@@ -3,9 +3,9 @@ import logging
 import time
 from typing import Any, Tuple
 
-from pyrogram import filters
-from pyrogram.errors import FloodWait, MessageNotModified, RPCError
-from pyrogram.types import Message
+from kirugram import filters
+from kirugram.errors import FloodWait, MessageNotModified, RPCError
+from kirugram.types import Message
 
 from config import BANNED_USERS, PING_VID_URL
 from nexo import app
