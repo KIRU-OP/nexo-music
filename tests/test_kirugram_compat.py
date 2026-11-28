@@ -2,11 +2,14 @@ from pathlib import Path
 
 
 def test_kirugram_imports():
+    from importlib.metadata import version
+
     import kirugram
     from kirugram import Client, filters
     from kirugram.raw.types import InputGroupCallSlug
 
     assert kirugram.__version__ == "2.2.27"
+    assert version("Kirugram") == "2.2.27"
     assert Client is kirugram.Client
     assert filters is kirugram.filters
     assert InputGroupCallSlug is not None
@@ -14,7 +17,7 @@ def test_kirugram_imports():
 
 def test_start_script_installs_kirugram():
     start_script = (Path(__file__).resolve().parents[1] / "start").read_text()
-    assert '"Kirugram==2.2.27"' in start_script
+    assert "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@2.2.27" in start_script
     assert "--force-reinstall --no-cache-dir" in start_script
     assert "Kirugram 2.2.27/PyTgCalls compatibility OK" in start_script
     assert "import kirugram" in start_script
