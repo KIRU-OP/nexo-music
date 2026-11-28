@@ -1,7 +1,7 @@
 import pyfiglet
 from random import choice
-from pyrogram import filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+from kirugram import filters
+from kirugram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from nexo import app
 
 import base64
