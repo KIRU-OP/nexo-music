@@ -11,7 +11,7 @@ from kirugram.errors import ChatAdminRequired, ChatWriteForbidden, Forbidden
 import kirugram.errors as kirugram_errors
 
 # Compatibility for PyTgCalls versions using legacy Pyrogram error-class names.
-# Kurigram uses the newer GroupCall* capitalization.
+# Kirugram uses the newer GroupCall* capitalization.
 if not hasattr(kirugram_errors, "GroupcallForbidden"):
     kirugram_errors.GroupcallForbidden = getattr(
         kirugram_errors, "GroupCallForbidden", kirugram_errors.Forbidden
