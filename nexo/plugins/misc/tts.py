@@ -6,9 +6,9 @@ from typing import Dict, List, Tuple
 from uuid import uuid4
 
 import edge_tts
-from pyrogram import Client, filters
-from pyrogram.enums import ChatAction, ParseMode
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from kirugram import Client, filters
+from kirugram.enums import ChatAction, ParseMode
+from kirugram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from nexo import app
 
