@@ -39,3 +39,12 @@ def test_legacy_pyrogram_imports_resolve_to_kirugram():
     assert Auth is KirugramAuth
     assert PROD == KIRUGRAM_PROD
     assert InlineKeyboardButton is KirugramInlineKeyboardButton
+
+
+def test_start_script_installs_kirugram_not_old_distribution():
+    from pathlib import Path
+
+    start_script = (Path(__file__).resolve().parents[1] / "start").read_text()
+    assert "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@main" in start_script
+    assert "kurigram" not in start_script.lower()
+    assert "from kirugram.raw.types import InputGroupCallSlug" in start_script
