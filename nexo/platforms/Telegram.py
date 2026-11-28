@@ -3,7 +3,7 @@ import os
 import time
 from typing import Optional, Union
 
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Voice
+from kirugram.types import InlineKeyboardButton, InlineKeyboardMarkup, Voice
 
 import config
 from nexo import app
