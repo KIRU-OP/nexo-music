@@ -9,7 +9,7 @@ from datetime import datetime
 import urllib3
 from git import Repo
 from git.exc import GitCommandError, InvalidGitRepositoryError
-from pyrogram import filters
+from kirugram import filters
 
 import config
 from nexo import app
@@ -114,7 +114,7 @@ async def update_(client, message, _):
             f"<u><b>ᴜᴩᴅᴀᴛᴇs :</b></u>\n\n<a href={url}>ᴄʜᴇᴄᴋ ᴜᴩᴅᴀᴛᴇs</a>"
         )
     else:
-        # Kurigram/Pyrogram builds differ: edit_text() may not accept
+        # Kurigram/Kirugram builds differ: edit_text() may not accept
         # disable_web_page_preview. Omit the optional preview flag for compatibility.
         nrs = await response.edit_text(_final_updates_)
 
