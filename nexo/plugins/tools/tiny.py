@@ -2,7 +2,7 @@ import os
 import subprocess
 import cv2
 from PIL import Image
-from pyrogram import Client, filters
+from kirugram import Client, filters
 from nexo import app
 from nexo.security import build_subprocess_env
 
