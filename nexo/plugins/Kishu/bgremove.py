@@ -2,7 +2,7 @@ import mimetypes
 import os
 from io import BytesIO
 
-from pyrogram import filters
+from kirugram import filters
 
 from nexo import app
 from nexo.utils.free_ai import FreeAIError, process_image_bytes
