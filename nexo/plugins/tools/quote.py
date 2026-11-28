@@ -3,8 +3,8 @@ import re
 import textwrap
 import unicodedata
 from io import BytesIO
-from pyrogram import Client, filters
-from pyrogram.types import Message
+from kirugram import Client, filters
+from kirugram.types import Message
 from nexo import app
 from httpx import AsyncClient, Timeout
 from PIL import Image, ImageDraw, ImageFont
@@ -427,7 +427,7 @@ async def get_text_or_caption(ctx: Message):
     else:
         return ""
 # ---------------------------------------------------------------------------------------------------
-async def pyrogram_to_quotly(messages, is_reply):
+async def kirugram_to_quotly(messages, is_reply):
     if not isinstance(messages, list):
         messages = [messages]
     payload = {
@@ -585,7 +585,7 @@ async def msg_quotly_cmd(self: Client, ctx: Message):
         await processing_msg.delete()
         return await ctx.reply_text("🤷🏻‍♂️")
     try:
-        make_quotly = await pyrogram_to_quotly(messages, is_reply=is_reply)
+        make_quotly = await kirugram_to_quotly(messages, is_reply=is_reply)
         bio_sticker = BytesIO(make_quotly)
         bio_sticker.name = "misskatyquote_sticker.webp"
         await ctx.reply_sticker(bio_sticker)
