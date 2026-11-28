@@ -14,9 +14,9 @@ All commands accept reply, @username, or user‑ID, with graceful usage hints.
 import asyncio
 from typing import Optional
 
-from pyrogram import filters, enums
-from pyrogram.errors import ChatAdminRequired, UserAdminInvalid
-from pyrogram.types import ChatAdministratorRights, Message
+from kirugram import filters, enums
+from kirugram.errors import ChatAdminRequired, UserAdminInvalid
+from kirugram.types import ChatAdministratorRights, Message
 
 from nexo import app
 from nexo.utils.decorator import admin_required
