@@ -2,7 +2,7 @@ import os
 from random import randint
 from typing import Union
 
-from pyrogram.types import InlineKeyboardMarkup
+from kirugram.types import InlineKeyboardMarkup
 
 import config
 from nexo import Carbon, YouTube, app
