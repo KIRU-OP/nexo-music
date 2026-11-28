@@ -1,6 +1,6 @@
-"""Bridge legacy Pyrogram import paths to the Kirugram distribution.
+"""Bridge legacy Kirugram import paths to the Kirugram distribution.
 
-NEXO plugins still contain older pyrogram.* imports. This module loads
+NEXO plugins still contain older kirugram.* imports. This module loads
 Kirugram first and maps already-loaded package modules to those compatibility
 names so the application uses the KIRU-OP-maintained implementation.
 """
@@ -24,8 +24,8 @@ for _name in (
     importlib.import_module(_name)
 
 # The root package and loaded submodules share the same module objects.
-sys.modules["pyrogram"] = kirugram
+sys.modules["kirugram"] = kirugram
 for _module_name, _module in tuple(sys.modules.items()):
     if _module_name.startswith("kirugram."):
-        _legacy_name = "pyrogram" + _module_name[len("kirugram"): ]
+        _legacy_name = "kirugram" + _module_name[len("kirugram"): ]
         sys.modules.setdefault(_legacy_name, _module)
