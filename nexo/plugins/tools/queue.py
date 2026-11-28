@@ -1,9 +1,9 @@
 import asyncio
 import os
 
-from pyrogram import filters
-from pyrogram.errors import FloodWait
-from pyrogram.types import CallbackQuery, InputMediaPhoto, Message
+from kirugram import filters
+from kirugram.errors import FloodWait
+from kirugram.types import CallbackQuery, InputMediaPhoto, Message
 
 import config
 from nexo import app
