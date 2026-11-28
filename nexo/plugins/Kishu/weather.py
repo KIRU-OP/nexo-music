@@ -1,8 +1,8 @@
 import html
 
 import httpx
-from pyrogram import Client, enums, filters
-from pyrogram.types import Message
+from kirugram import Client, enums, filters
+from kirugram.types import Message
 
 from nexo import app
 
