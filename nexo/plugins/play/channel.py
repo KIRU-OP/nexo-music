@@ -1,6 +1,6 @@
-from pyrogram import filters
-from pyrogram.enums import ChatMembersFilter, ChatMemberStatus, ChatType
-from pyrogram.types import Message
+from kirugram import filters
+from kirugram.enums import ChatMembersFilter, ChatMemberStatus, ChatType
+from kirugram.types import Message
 
 from nexo import app
 from nexo.utils.database import set_cmode
