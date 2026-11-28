@@ -1,6 +1,6 @@
 import random
-from pyrogram import filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from kirugram import filters
+from kirugram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from nexo import app
 from config import SUPPORT_CHAT
