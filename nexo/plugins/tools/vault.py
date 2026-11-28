@@ -1,10 +1,10 @@
 import secrets
 from datetime import datetime
 
-from pyrogram import filters
-from pyrogram.enums import ChatType
-from pyrogram.errors import MessageIdInvalid, RPCError
-from pyrogram.types import Message
+from kirugram import filters
+from kirugram.enums import ChatType
+from kirugram.errors import MessageIdInvalid, RPCError
+from kirugram.types import Message
 
 import config
 from config import BANNED_USERS
