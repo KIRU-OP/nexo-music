@@ -3,9 +3,9 @@ import re
 import shutil
 from pathlib import Path
 
-from pyrogram import filters
-from pyrogram.enums import ChatAction
-from pyrogram.types import Message
+from kirugram import filters
+from kirugram.enums import ChatAction
+from kirugram.types import Message
 
 from nexo import YouTube, app
 from nexo.security import SecurityError
