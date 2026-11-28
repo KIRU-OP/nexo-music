@@ -10,11 +10,17 @@ if [ -z "$PYTHON_BIN" ]; then
 fi
 
 # Install Kirugram 2.2.27 from the renamed upstream main branch.
-"$PYTHON_BIN" -m pip install --disable-pip-version-check --no-input --upgrade "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@main"
+"$PYTHON_BIN" -m pip install --disable-pip-version-check --no-input --upgrade --force-reinstall --no-cache-dir "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@main"
 
 # Fail early with a clear message if the required Telegram raw type is unavailable.
 "$PYTHON_BIN" -c "from kirugram.raw.types import InputGroupCallSlug" || {
     echo "Kirugram installation is missing InputGroupCallSlug. Check the active virtual environment."
+    exit 1
+}
+
+# Verify that this exact installed Kirugram client is accepted by PyTgCalls.
+"$PYTHON_BIN" -c "import kirugram; from pytgcalls import PyTgCalls; from pytgcalls.mtproto.bridged_client import BridgedClient; client = kirugram.Client('kirugram-compat-check', 12345, '0' * 32); assert BridgedClient.package_name(client) == 'pyrogram', BridgedClient.package_name(client); PyTgCalls(client); print('Kirugram/PyTgCalls compatibility OK')" || {
+    echo "Kirugram/PyTgCalls compatibility check failed. Verify that this virtual environment has the updated Kirugram package and py-tgcalls==2.3.3."
     exit 1
 }
 
