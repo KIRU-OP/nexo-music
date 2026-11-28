@@ -26,18 +26,15 @@ from kirugram.raw.functions.messages import GetFullChat
 from kirugram.raw.types import PeerUser, UpdateGroupCallParticipants
 from kirugram.types import InlineKeyboardMarkup
 # PyTgCalls 2.3.3 detects clients by their top-level module name and only
-# provides a Pyrogram adapter. Kirugram keeps the same client API but uses
-# the `kirugram` namespace, so expose its exact modules through the adapter's
-# expected namespace without installing or importing the Pyrogram package.
+# provides a Pyrogram adapter. Kirugram has the compatible client API under
+# its own namespace, so map its loaded modules to the adapter namespace.
 import importlib
 import sys
 import kirugram
 
 _KIRUGRAM_PYTG_CALLS_MODULES = (
     "errors",
-    "raw",
     "raw.base",
-    "raw.functions",
     "raw.functions.auth",
     "raw.functions.channels",
     "raw.functions.messages",
@@ -48,12 +45,12 @@ _KIRUGRAM_PYTG_CALLS_MODULES = (
     "raw.types.messages",
     "session",
 )
-
-sys.modules["pyrogram"] = kirugram
 for _module_name in _KIRUGRAM_PYTG_CALLS_MODULES:
-    sys.modules[f"pyrogram.{_module_name}"] = importlib.import_module(
-        f"kirugram.{_module_name}"
-    )
+    importlib.import_module(f"kirugram.{_module_name}")
+
+for _module_name, _module in tuple(sys.modules.items()):
+    if _module_name == "kirugram" or _module_name.startswith("kirugram."):
+        sys.modules["pyrogram" + _module_name[len("kirugram"):]] = _module
 
 from pytgcalls.mtproto.bridged_client import BridgedClient
 
