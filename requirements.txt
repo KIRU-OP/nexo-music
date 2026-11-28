@@ -12,7 +12,6 @@ gtts
 heroku3
 httpx<0.28
 indic-transliteration
-Pyrogram==2.2.27
 Kirugram==2.2.27
 motor
 nekosbest
