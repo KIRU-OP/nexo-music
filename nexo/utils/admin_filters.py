@@ -1,5 +1,5 @@
-from pyrogram import filters
-from pyrogram.types import Message, CallbackQuery
+from kirugram import filters
+from kirugram.types import Message, CallbackQuery
 from nexo.utils.admin_check import is_admin, is_group_owner
 from nexo.misc import SUDOERS
 from config import OWNER_ID
