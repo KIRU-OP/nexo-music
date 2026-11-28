@@ -15,6 +15,8 @@ def test_kirugram_imports_and_required_api():
 def test_start_script_installs_kirugram_distribution():
     start_script = (Path(__file__).resolve().parents[1] / "start").read_text()
     assert "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@main" in start_script
+    assert "--force-reinstall --no-cache-dir" in start_script
+    assert "Kirugram/PyTgCalls compatibility OK" in start_script
     assert "kurigram" not in start_script.lower()
     assert "from kirugram.raw.types import InputGroupCallSlug" in start_script
 
