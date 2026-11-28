@@ -41,8 +41,8 @@ def auto_git_pull():
 
 auto_git_pull()
 
-from pyrogram import idle
-from pyrogram.types import BotCommand
+from kirugram import idle
+from kirugram.types import BotCommand
 from pytgcalls.exceptions import NoActiveGroupCall
 
 import config
