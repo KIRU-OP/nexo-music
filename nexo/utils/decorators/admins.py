@@ -1,5 +1,5 @@
-from pyrogram.enums import ChatType
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from kirugram.enums import ChatType
+from kirugram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from nexo import app
 from nexo.misc import SUDOERS, db
