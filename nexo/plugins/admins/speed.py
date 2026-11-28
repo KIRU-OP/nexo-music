@@ -1,5 +1,5 @@
-from pyrogram import filters
-from pyrogram.types import Message
+from kirugram import filters
+from kirugram.types import Message
 
 from config import BANNED_USERS, adminlist
 from nexo import app
