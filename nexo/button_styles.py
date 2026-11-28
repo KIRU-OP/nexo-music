@@ -1,10 +1,10 @@
 import inspect
 from typing import Any
 
-from pyrogram.types import InlineKeyboardButton
+from kirugram.types import InlineKeyboardButton
 
 try:
-    from pyrogram.enums import ButtonStyle as _ButtonStyle
+    from kirugram.enums import ButtonStyle as _ButtonStyle
 except Exception:
     _ButtonStyle = None
 
