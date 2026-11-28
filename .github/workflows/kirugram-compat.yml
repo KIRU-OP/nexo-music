@@ -1,4 +1,4 @@
-name: Kirugram Migration Checks
+name: Kurigram 2.2.27 Compatibility Checks
 
 on:
   pull_request:
@@ -20,20 +20,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - name: Install Kirugram, PyTgCalls and test runner
+      - name: Install Kurigram 2.2.27, PyTgCalls and test runner
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "Kirugram @ git+https://github.com/KIRU-OP/Kirugram.git@main" "ntgcalls==2.2.5" "py-tgcalls==2.3.3" pytest
-      - name: Scan for remaining legacy Pyrogram imports
-        shell: bash
-        run: |
-          if grep -RInE '(^|[[:space:]])(from|import)[[:space:]]+pyrogram([.]|[[:space:]]|$)' --include='*.py' .; then
-            echo 'Legacy Pyrogram imports remain; replace them with Kirugram imports.'
-            exit 1
-          else
-            echo 'No legacy Pyrogram imports found.'
-          fi
+          python -m pip install kurigram==2.2.27 "ntgcalls==2.2.5" "py-tgcalls==2.3.3" pytest
       - name: Compile NEXO Python files
         run: python -m compileall -q config.py nexo tests
-      - name: Test Kirugram imports and PyTgCalls bridge
+      - name: Test Kurigram imports and PyTgCalls bridge
         run: python -m pytest -q tests/test_kirugram_compat.py
